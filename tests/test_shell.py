@@ -98,6 +98,22 @@ async def test_panel_message_disables_markup_so_server_text_cannot_style_the_pan
 
 
 @pytest.mark.asyncio
+async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
+    """The dashboard must not impose its own palette over the terminal's.
+
+    "ansi-dark" is Textual's built-in theme that resolves background,
+    foreground, and chrome colors to the terminal's own ANSI palette instead of
+    fixed truecolor hex values, and it is what makes native_ansi_color true —
+    the flag that keeps named ANSI colors (e.g. CHANGE_STYLE) from being
+    approximated to RGB.
+    """
+    app = OflowApp(tabs=("alpha",))
+    async with app.run_test():
+        assert app.theme == "ansi-dark"
+        assert app.native_ansi_color is True
+
+
+@pytest.mark.asyncio
 async def test_the_app_opens_with_a_tab_per_configured_integration():
     # Pilot.app is typed as App[ReturnType], not the subclass, so a locally
     # typed reference is what gives pyright OflowApp's own attributes.

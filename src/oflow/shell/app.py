@@ -38,6 +38,15 @@ class OflowApp(App[None]):
 
     def __init__(self, tabs: tuple[str, ...]) -> None:
         super().__init__()
+        # This dashboard sits in the user's terminal all day, so it adopts the
+        # terminal's own palette rather than imposing one: "ansi-dark" is
+        # Textual's built-in theme whose background/foreground/chrome variables
+        # resolve to the terminal's native ANSI colors (ansi_default and the 16
+        # standard names) instead of the fixed truecolor hex values every other
+        # built-in theme paints. Named ANSI colors used in our own styling (e.g.
+        # linear/panel.py's CHANGE_STYLE) render through the terminal's palette
+        # only once this is active.
+        self.theme = "ansi-dark"
         self.tab_ids = tabs
         self.empty_hint = "no tabs configured — run: oflow connect <integration>"
         self.seen = SeenState({})

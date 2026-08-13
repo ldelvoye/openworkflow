@@ -16,6 +16,9 @@ from oflow.shell.panel import Panel, PanelState
 from oflow.state import SeenState
 
 CHANGED_MARK = "●"
+# A standard ANSI color name (not a hex/truecolor value or a Textual $variable),
+# so it renders through the terminal's own green under the app's ansi theme
+# rather than an approximated RGB shade.
 CHANGE_STYLE = "green"
 SELECTED_MARK = "▸"
 
