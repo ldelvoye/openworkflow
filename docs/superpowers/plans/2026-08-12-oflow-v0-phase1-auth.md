@@ -810,7 +810,22 @@ the same environment gives keyring an insecure backend to pick instead."
 
 **Out of scope:** the interactive browser/loopback orchestration (Task 6 owns
 it), concurrent-refresh locking (Phase 2, when two tabs can refresh at once),
-token introspection, revocation.
+token introspection.
+
+Revocation belongs here rather than in Task 6: `logout` needs it, and the
+alternative is reopening this module later to add a single function.
+
+**Settled — the loopback port is ephemeral.** The original concern was that a
+fixed port can be bound first by any local process, which would receive the
+authorization code; PKCE made that tolerable rather than fatal. The obstacle to
+picking a free port was that dynamic client registration pins `redirect_uris`.
+
+Tested against the live service on 2026-08-12: a client registered for port 8765
+completed a login with the callback on port 52282, so Linear honours RFC 8252
+§7.3 and ignores the port on a loopback redirect. Registration therefore names a
+stable URI (`REGISTERED_REDIRECT_URI`) while the callback binds port 0. An
+unpredictable port cannot be squatted in advance, and the port-already-in-use
+failure path becomes unreachable in practice.
 
 Every test uses `httpx.MockTransport`. No test may make a real network call.
 
@@ -1387,12 +1402,16 @@ def get_integration(integration_id: str) -> Integration:
     return registry[integration_id]
 ```
 
-- [ ] **Step 5: Run tests to verify they fail on the missing Linear module**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_registry.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'oflow.integrations.linear'`.
-This is expected — Task 6 creates it. Do not commit yet; continue to Task 6 and
-commit both together, since neither passes alone.
+Expected: all pass.
+
+The allowlist is a tuple in `integrations/__init__.py`, empty until Task 6 adds
+Linear, and the tests populate it with a fake integration. That keeps this task
+committable on its own: an earlier draft of this plan had it depend on the Linear
+module and told you to commit Tasks 5 and 6 together, which meant landing a
+knowingly-red commit to satisfy a plan rather than a constraint.
 
 ---
 
@@ -1419,6 +1438,16 @@ commit both together, since neither passes alone.
 **Out of scope:** the TUI, `oflow run`, fetching any issue data, a `source.py`
 or `panel.py` for Linear, refresh-on-launch. This phase ends when authentication
 works end to end.
+
+**`logout` must revoke, not just delete.** Deleting the local credentials leaves
+the access token valid for its remaining lifetime and the refresh token valid
+indefinitely, so anyone who captured them keeps their access — a command named
+`logout` that only forgets is misleading. Linear's metadata advertises
+`revocation_endpoint: https://mcp.linear.app/token`, so `logout` posts an
+RFC 7009 revocation for the refresh token first and treats deleting the local
+copy as cleanup afterwards. Revocation failing (offline, already revoked) must
+still delete locally, or a network problem would trap credentials on the
+machine.
 
 - [ ] **Step 1: Write the Linear manifest**
 
@@ -1761,3 +1790,22 @@ Phase 2 (the shell, the Linear source, panels, seen-state, and refresh) gets its
 own plan, written after this one lands — the contract in `contract.py` is
 deliberately provisional, and Phase 2's task detail depends on what it looks
 like once it has a real consumer.
+
+`Credentials.is_expired` compares against the expiry with no margin. The refresh
+scheduler will want "expires within N seconds" to count as expired, so a token
+is never used in the window between the check and the request landing. Add the
+skew allowance there rather than in the store, where a hardcoded margin would be
+invisible to callers.
+
+A new provider may not honour RFC 8252 §7.3 the way Linear does. If one rejects
+a callback on an unregistered port, `run_login` needs a per-provider opt-out
+that registers and listens on the same fixed port — a manifest flag, not a
+global change back.
+
+One item for that plan: `RESERVED_KEYS` in `contract.py` is a hand-written copy
+of a binding table the shell does not have yet. When the shell declares its
+`BINDINGS`, derive the constant from them rather than keeping a parallel list.
+Two lists of the same keys drift the first time someone adds a shortcut, and the
+drift stays invisible until an integration's action silently stops firing. The
+current contents are also incomplete on purpose-by-omission: number keys and
+`shift+tab` are unreserved despite being likely tab-switching bindings.

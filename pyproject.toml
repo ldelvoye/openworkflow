@@ -15,14 +15,28 @@ dependencies = [
 oflow = "oflow.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.9"]
+dev = ["pytest>=8.0", "ruff>=0.9", "pyright>=1.1"]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.13"]
 build-backend = "uv_build"
 
+# Pinned so the lockfile resolves against public PyPI regardless of any index
+# mirror configured in the local environment. Without this a mirror's URLs leak
+# into uv.lock and CI cannot resolve them.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# Pyright reads this directly, so import resolution does not depend on the
+# editor's Python extension discovering an interpreter.
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
 
 [tool.ruff]
 line-length = 100
