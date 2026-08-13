@@ -815,14 +815,17 @@ token introspection.
 Revocation belongs here rather than in Task 6: `logout` needs it, and the
 alternative is reopening this module later to add a single function.
 
-**Open decision — the loopback port.** `LOOPBACK_PORT = 8765` is fixed, so any
-local process can bind it first and receive the authorization code. PKCE makes a
-stolen code useless without the verifier, which is why this is tolerable rather
-than fatal, but a free port chosen at runtime would be better. The obstacle is
-that dynamic client registration pins `redirect_uris` at registration time.
-RFC 8252 §7.3 says an authorization server should accept any port on a loopback
-redirect regardless of what was registered — test whether Linear honours that
-before settling on the fixed port.
+**Settled — the loopback port is ephemeral.** The original concern was that a
+fixed port can be bound first by any local process, which would receive the
+authorization code; PKCE made that tolerable rather than fatal. The obstacle to
+picking a free port was that dynamic client registration pins `redirect_uris`.
+
+Tested against the live service on 2026-08-12: a client registered for port 8765
+completed a login with the callback on port 52282, so Linear honours RFC 8252
+§7.3 and ignores the port on a loopback redirect. Registration therefore names a
+stable URI (`REGISTERED_REDIRECT_URI`) while the callback binds port 0. An
+unpredictable port cannot be squatted in advance, and the port-already-in-use
+failure path becomes unreachable in practice.
 
 Every test uses `httpx.MockTransport`. No test may make a real network call.
 
@@ -1794,11 +1797,10 @@ is never used in the window between the check and the request landing. Add the
 skew allowance there rather than in the store, where a hardcoded margin would be
 invisible to callers.
 
-The loopback port is now injectable (`run_login(..., port=...)`), which is the
-seam for the RFC 8252 §7.3 question: if the provider accepts a callback on a
-port that was never registered, an ephemeral port removes both the squatting
-caveat and the port-in-use failure path. Run that experiment and record the
-outcome here either way — the design doc currently justifies a fixed port.
+A new provider may not honour RFC 8252 §7.3 the way Linear does. If one rejects
+a callback on an unregistered port, `run_login` needs a per-provider opt-out
+that registers and listens on the same fixed port — a manifest flag, not a
+global change back.
 
 One item for that plan: `RESERVED_KEYS` in `contract.py` is a hand-written copy
 of a binding table the shell does not have yet. When the shell declares its

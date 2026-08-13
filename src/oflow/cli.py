@@ -23,7 +23,7 @@ from oflow.auth.store import (
 )
 from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from oflow.contract import Integration
-from oflow.registry import UnknownIntegration, get_integration
+from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
 
 LOGIN_TIMEOUT_SECONDS = 300
 
@@ -79,13 +79,17 @@ def run_login(
     client: httpx.Client,
     provider: oauth.ProviderConfig,
     client_id: str | None,
-    port: int = oauth.LOOPBACK_PORT,
+    port: int = 0,
     timeout: float = LOGIN_TIMEOUT_SECONDS,
 ) -> tuple[str, Credentials]:
     """Register if needed, take the user through the browser, return the tokens.
 
     The client id comes back alongside the credentials because a first login
     mints one, and it has to be persisted so later logins reuse the registration.
+
+    Registration names a stable loopback URI while the callback listens on an
+    ephemeral port — see REGISTRATION_PORT for why a server accepts that. The
+    payoff is that nothing can bind a port it cannot predict.
     """
     verifier, challenge = oauth.make_pkce_pair()
     state = secrets.token_urlsafe(16)
@@ -94,10 +98,7 @@ def run_login(
     try:
         server = http.server.HTTPServer(("127.0.0.1", port), _callback_handler(state, received))
     except OSError as error:
-        raise oauth.OAuthError(
-            f"port {port} is already in use, so the callback cannot be received. "
-            f"Close whatever is holding it and try again."
-        ) from error
+        raise oauth.OAuthError(f"could not open a port for the callback: {error}") from error
 
     try:
         # Bound before the redirect is built so an ephemeral port resolves to
@@ -105,7 +106,9 @@ def run_login(
         redirect_uri = oauth.redirect_uri_for(server.server_port)
         metadata = oauth.discover(client, provider)
         if client_id is None:
-            client_id = oauth.register_client(client, metadata, provider, redirect_uri)
+            client_id = oauth.register_client(
+                client, metadata, provider, oauth.REGISTERED_REDIRECT_URI
+            )
 
         url = oauth.build_authorize_url(
             metadata, client_id, redirect_uri, challenge, provider.scopes, state
@@ -201,7 +204,11 @@ def _describe(credentials: Credentials) -> str:
 def _status() -> int:
     config = load_config()
     if not config.tabs:
-        print("no tabs configured. run: oflow connect linear")
+        available = known_integration_ids()
+        if available:
+            print(f"no tabs configured. run: oflow connect {available[0]}")
+        else:
+            print("no tabs configured, and this build registers no integrations")
         return 0
 
     for tab in config.tabs:

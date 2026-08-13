@@ -91,6 +91,28 @@ def test_stray_requests_do_not_consume_the_login(monkeypatch):
     assert credentials.access_token == "at-1"
 
 
+def test_registration_is_stable_while_the_callback_port_is_not(monkeypatch):
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("oauth-authorization-server"):
+            return httpx.Response(200, json=METADATA)
+        if path == "/register":
+            seen["registered"] = json.loads(request.content)["redirect_uris"][0]
+            return httpx.Response(201, json={"client_id": "client-abc"})
+        seen["exchanged"] = dict(urllib.parse.parse_qsl(request.content.decode()))["redirect_uri"]
+        return httpx.Response(200, json=TOKEN)
+
+    browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    run_login(client, PROVIDER, None, port=0, timeout=10)
+
+    assert seen["registered"] == oauth.REGISTERED_REDIRECT_URI
+    assert seen["exchanged"] != seen["registered"]
+
+
 def test_a_non_ascii_state_is_rejected_without_disturbing_the_login(monkeypatch):
     browser_sending(
         monkeypatch,

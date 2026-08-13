@@ -25,8 +25,8 @@ from oflow.auth.store import Credentials, now
 JsonObject = dict[str, Any]
 
 __all__ = [
-    "LOOPBACK_PORT",
-    "REDIRECT_URI",
+    "REGISTERED_REDIRECT_URI",
+    "REGISTRATION_PORT",
     "OAuthError",
     "ProviderConfig",
     "ServerMetadata",
@@ -39,17 +39,19 @@ __all__ = [
     "revoke",
 ]
 
-# Fixed because dynamic client registration pins redirect_uris at registration
-# time. A local process can squat this port and receive the authorization code;
-# PKCE is what makes that code useless to it.
-LOOPBACK_PORT = 8765
+# The port named at registration time, not the one the callback listens on.
+# RFC 8252 section 7.3 asks authorization servers to accept any port on a
+# loopback redirect regardless of what was registered, so the callback binds an
+# ephemeral port instead — leaving nothing for a local process to squat in
+# advance. A provider that ignores that guidance needs its own opt-out.
+REGISTRATION_PORT = 8765
 
 
 def redirect_uri_for(port: int) -> str:
     return f"http://127.0.0.1:{port}/callback"
 
 
-REDIRECT_URI = redirect_uri_for(LOOPBACK_PORT)
+REGISTERED_REDIRECT_URI = redirect_uri_for(REGISTRATION_PORT)
 
 
 class OAuthError(Exception):
