@@ -24,6 +24,7 @@ from oflow.auth.store import (
 from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from oflow.contract import Integration
 from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.shell.app import OflowApp
 from oflow.text import printable
 
 LOGIN_TIMEOUT_SECONDS = 300
@@ -278,6 +279,12 @@ def _logout(integration_id: str) -> int:
     return 0
 
 
+def _run() -> int:
+    tabs = tuple(tab.integration for tab in load_config().tabs)
+    OflowApp(tabs=tabs).run()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="oflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -290,12 +297,16 @@ def main(argv: list[str] | None = None) -> int:
     logout = subparsers.add_parser("logout", help="revoke and delete stored credentials")
     logout.add_argument("integration")
 
+    subparsers.add_parser("run", help="open the dashboard")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "connect":
             return _connect(args.integration)
         if args.command == "status":
             return _status()
+        if args.command == "run":
+            return _run()
         return _logout(args.integration)
     except ConfigError as error:
         # The config file is documented as hand-editable, so a broken one is a
