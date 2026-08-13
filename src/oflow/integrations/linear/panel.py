@@ -92,7 +92,7 @@ class LinearPanel(Panel):
         for index, issue in enumerate(issues):
             if issue.status != current_status:
                 current_status = issue.status
-                lines.append(f"\n{current_status}")
+                lines.append(current_status)
             lines.append(self._plain_row(issue, index == cursor))
         return "\n".join(lines).strip()
 

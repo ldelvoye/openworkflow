@@ -14,6 +14,7 @@ import httpx
 from oflow.auth.store import Credentials
 from oflow.contract import Item, Malformed
 from oflow.mcp import McpClient
+from oflow.text import printable
 
 ENDPOINT = "https://mcp.linear.app/mcp"
 
@@ -77,19 +78,57 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
     return tuple(sorted(active, key=lambda issue: issue.updated_at, reverse=True))
 
 
+def _string(raw: dict[str, Any], key: str) -> str:
+    """A field the panel renders unconditionally, so absent or non-str is Malformed.
+
+    ``.get`` rather than ``[]``: a missing key and an explicit ``null`` both
+    fail the isinstance check the same way, so one branch covers both.
+    """
+    value = raw.get(key)
+    if not isinstance(value, str):
+        raise Malformed(f"{key!r} was {type(value).__name__}, expected a string")
+    return value
+
+
+def _optional_string(raw: dict[str, Any], key: str) -> str:
+    """A field the panel treats as optional: absent or null defaults to "",
+    but a present value of the wrong type still means the server's shape
+    cannot be trusted.
+    """
+    value = raw.get(key)
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise Malformed(f"{key!r} was {type(value).__name__}, expected a string")
+    return value
+
+
+def _priority_name(raw: dict[str, Any]) -> str:
+    priority = raw.get("priority")
+    if priority is None:
+        return ""
+    if not isinstance(priority, dict):
+        raise Malformed(f"'priority' was {type(priority).__name__}, expected an object")
+    return _optional_string(priority, "name")
+
+
 def _issue_of(raw: Any) -> Issue:
     if not isinstance(raw, dict):
         raise Malformed(f"an issue was {type(raw).__name__}, expected an object")
     try:
-        return Issue(
-            id=raw["id"],
-            updated_at=datetime.fromisoformat(raw["updatedAt"]),
-            url=raw["url"],
-            title=raw["title"],
-            status=raw["status"],
-            status_type=raw["statusType"],
-            team=raw.get("team") or "",
-            priority=(raw.get("priority") or {}).get("name", ""),
-        )
-    except (AttributeError, KeyError, TypeError, ValueError) as error:
-        raise Malformed(f"an issue did not match the expected shape ({error})") from error
+        updated_at = datetime.fromisoformat(raw["updatedAt"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise Malformed(
+            f"an issue did not match the expected shape ({printable(str(error))})"
+        ) from error
+
+    return Issue(
+        id=_string(raw, "id"),
+        updated_at=updated_at,
+        url=_string(raw, "url"),
+        title=_string(raw, "title"),
+        status=_string(raw, "status"),
+        status_type=_string(raw, "statusType"),
+        team=_optional_string(raw, "team"),
+        priority=_priority_name(raw),
+    )

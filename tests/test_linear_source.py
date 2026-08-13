@@ -113,6 +113,32 @@ def test_an_issue_that_is_not_an_object_is_malformed():
         fetch_with(handler)
 
 
+def test_a_null_title_is_malformed_not_a_crash():
+    def handler(request):
+        if json.loads(request.content)["method"] != "tools/call":
+            return httpx.Response(202)
+        broken = json.loads(json.dumps(PAGES["page1"]))
+        broken["issues"][0]["title"] = None
+        broken["hasNextPage"] = False
+        return sse(broken)
+
+    with pytest.raises(Malformed):
+        fetch_with(handler)
+
+
+def test_a_non_string_team_is_malformed():
+    def handler(request):
+        if json.loads(request.content)["method"] != "tools/call":
+            return httpx.Response(202)
+        broken = json.loads(json.dumps(PAGES["page1"]))
+        broken["issues"][0]["team"] = {"id": "T1", "name": "Infra"}
+        broken["hasNextPage"] = False
+        return sse(broken)
+
+    with pytest.raises(Malformed):
+        fetch_with(handler)
+
+
 def test_pagination_stops_at_a_page_limit():
     def handler(request):
         if json.loads(request.content)["method"] != "tools/call":
