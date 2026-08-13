@@ -29,6 +29,7 @@ from oflow.config import (
     ensure_config_dir,
     require_config_dir_permissions,
     require_private_path,
+    write_private_file,
 )
 
 __all__ = [
@@ -169,26 +170,9 @@ class _FileStore:
 
     def _write(self, payload: dict[str, StoredCredential]) -> None:
         _translate_permission_error(ensure_config_dir)
-        path = self._path()
-        temporary = path.with_name(path.name + ".tmp")
-
-        # Written to a temp file and renamed so an interrupted write cannot
-        # truncate the live file: it holds the refresh token, and losing it
-        # means logging in again. O_EXCL refuses a pre-existing file or a
-        # symlink planted at that path, and the 0600 creation mode means the
-        # tokens are never briefly wider.
-        temporary.unlink(missing_ok=True)
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, FILE_MODE)
-        try:
-            # The creation mode is masked by the process umask, which can only
-            # make it narrower — narrow enough to fail our own read check.
-            os.fchmod(descriptor, FILE_MODE)
-            with os.fdopen(descriptor, "w") as handle:
-                handle.write(json.dumps(payload))
-        except BaseException:
-            temporary.unlink(missing_ok=True)
-            raise
-        temporary.replace(path)
+        # Atomic replace matters more here than for config: this file holds the
+        # refresh token, so a truncated write costs a login.
+        write_private_file(self._path(), json.dumps(payload))
 
 
 class _KeyringStore:

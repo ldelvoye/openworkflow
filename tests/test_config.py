@@ -3,9 +3,11 @@ import pytest
 from oflow.config import (
     Config,
     ConfigPermissionError,
+    MalformedConfigError,
     TabConfig,
     add_tab,
     config_dir,
+    config_path,
     load_config,
     save_config,
 )
@@ -33,6 +35,18 @@ def test_save_then_load_roundtrips():
 def test_save_creates_directory_with_0700():
     save_config(Config(tabs=()))
     assert (config_dir().stat().st_mode & 0o777) == 0o700
+
+
+def test_config_file_is_written_owner_only():
+    save_config(Config(tabs=()))
+    assert config_path().stat().st_mode & 0o777 == 0o600
+
+
+def test_a_hand_broken_config_reports_rather_than_crashes():
+    save_config(Config(tabs=()))
+    config_path().write_text('tabs = [ { client_id = "no-integration-key" } ]')
+    with pytest.raises(MalformedConfigError):
+        load_config()
 
 
 def test_save_refuses_a_wide_config_dir():

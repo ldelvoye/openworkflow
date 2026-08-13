@@ -23,8 +23,16 @@ DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 
 
-class ConfigPermissionError(Exception):
+class ConfigError(Exception):
+    """Base class for anything that stops configuration being read or written."""
+
+
+class ConfigPermissionError(ConfigError):
     """The config directory is readable by someone other than its owner."""
+
+
+class MalformedConfigError(ConfigError):
+    """The config file exists but could not be understood."""
 
 
 @dataclass(frozen=True)
@@ -91,15 +99,44 @@ def ensure_config_dir() -> Path:
     return directory
 
 
+def write_private_file(path: Path, data: str) -> None:
+    """Replace a file atomically, never widening it even briefly.
+
+    Used for everything under the config directory so one idiom covers both the
+    non-secret config and the credentials file — a second, laxer idiom is how a
+    plaintext token ends up world-readable for the width of a rename.
+
+    O_EXCL refuses a pre-existing temp file or a symlink planted at that path.
+    The creation mode is masked by the umask, which can only narrow it — narrow
+    enough to fail our own read checks — so fchmod pins the exact bits.
+    """
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.unlink(missing_ok=True)
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, FILE_MODE)
+    try:
+        os.fchmod(descriptor, FILE_MODE)
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(data)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    temporary.replace(path)
+
+
 def load_config() -> Config:
     path = config_path()
     if not path.exists():
         return Config()
-    raw = tomllib.loads(path.read_text())
-    tabs = tuple(
-        TabConfig(integration=entry["integration"], client_id=entry.get("client_id"))
-        for entry in raw.get("tabs", [])
-    )
+    try:
+        raw = tomllib.loads(path.read_text())
+        tabs = tuple(
+            TabConfig(integration=entry["integration"], client_id=entry.get("client_id"))
+            for entry in raw.get("tabs", [])
+        )
+    except (tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError) as error:
+        raise MalformedConfigError(
+            f"{path} could not be read ({error}). Fix it by hand or delete it to start over."
+        ) from error
     return Config(tabs=tabs)
 
 
@@ -113,9 +150,7 @@ def save_config(config: Config) -> None:
             for tab in config.tabs
         ]
     }
-    temporary = config_path().with_suffix(".toml.tmp")
-    temporary.write_bytes(tomli_w.dumps(payload).encode())
-    temporary.replace(config_path())
+    write_private_file(config_path(), tomli_w.dumps(payload))
 
 
 def add_tab(config: Config, tab: TabConfig) -> Config:
