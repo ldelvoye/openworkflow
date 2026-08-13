@@ -80,4 +80,8 @@ class Malformed(IntegrationError):
 
 
 class Integration(Protocol):
-    manifest: Manifest
+    # A property rather than an attribute so the protocol is read-only, which
+    # frozen dataclasses satisfy. Nothing assigns a manifest; it is a
+    # declaration, not state.
+    @property
+    def manifest(self) -> Manifest: ...
