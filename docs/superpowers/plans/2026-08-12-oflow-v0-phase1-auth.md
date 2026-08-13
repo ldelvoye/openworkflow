@@ -1399,12 +1399,16 @@ def get_integration(integration_id: str) -> Integration:
     return registry[integration_id]
 ```
 
-- [ ] **Step 5: Run tests to verify they fail on the missing Linear module**
+- [ ] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_registry.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'oflow.integrations.linear'`.
-This is expected — Task 6 creates it. Do not commit yet; continue to Task 6 and
-commit both together, since neither passes alone.
+Expected: all pass.
+
+The allowlist is a tuple in `integrations/__init__.py`, empty until Task 6 adds
+Linear, and the tests populate it with a fake integration. That keeps this task
+committable on its own: an earlier draft of this plan had it depend on the Linear
+module and told you to commit Tasks 5 and 6 together, which meant landing a
+knowingly-red commit to satisfy a plan rather than a constraint.
 
 ---
 
@@ -1783,3 +1787,11 @@ Phase 2 (the shell, the Linear source, panels, seen-state, and refresh) gets its
 own plan, written after this one lands — the contract in `contract.py` is
 deliberately provisional, and Phase 2's task detail depends on what it looks
 like once it has a real consumer.
+
+One item for that plan: `RESERVED_KEYS` in `contract.py` is a hand-written copy
+of a binding table the shell does not have yet. When the shell declares its
+`BINDINGS`, derive the constant from them rather than keeping a parallel list.
+Two lists of the same keys drift the first time someone adds a shortcut, and the
+drift stays invisible until an integration's action silently stops firing. The
+current contents are also incomplete on purpose-by-omission: number keys and
+`shift+tab` are unreserved despite being likely tab-switching bindings.
