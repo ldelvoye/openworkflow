@@ -7,7 +7,8 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from oflow.shell.panel import Panel
+from oflow.registry import UnknownIntegration, get_integration
+from oflow.shell.panel import Panel, PanelState
 
 
 class OflowApp(App[None]):
@@ -43,8 +44,20 @@ class OflowApp(App[None]):
         with TabbedContent(initial=self.tab_ids[0]):
             for tab in self.tab_ids:
                 with TabPane(tab, id=tab):
-                    yield Panel()
+                    yield self._panel_for(tab)
         yield Footer()
+
+    def _panel_for(self, integration_id: str) -> Panel:
+        try:
+            integration = get_integration(integration_id)
+        except UnknownIntegration:
+            # A config naming an integration this build dropped still opens; the
+            # tab says so rather than the app refusing to start.
+            panel = Panel()
+            panel.state = PanelState.ERROR
+            panel.message = f"{integration_id} is not supported by this build"
+            return panel
+        return integration.panel_class()
 
     def _shift_tab(self, offset: int) -> None:
         if not self.tab_ids:

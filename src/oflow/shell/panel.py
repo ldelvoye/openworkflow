@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
+from textual.app import RenderResult
 from textual.widgets import Static
 
 from oflow.contract import Item
@@ -50,5 +51,8 @@ class Panel(Static):
             return f"showing data as of {stamp} — {self.message}\n{self.render_items()}"
         return self.render_items()
 
-    def render(self) -> str:
+    def render(self) -> RenderResult:
+        # A wider return type than body_text()'s str: an integration's panel can
+        # override this to return a styled rich.text.Text for its ready state
+        # while body_text() itself stays str-returning for tests to assert on.
         return self.body_text()

@@ -11,12 +11,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
 from oflow.auth.oauth import ProviderConfig
 from oflow.auth.store import Credentials
+
+if TYPE_CHECKING:
+    # Deferred: shell.panel imports this module for Item, so a real import here
+    # would be circular. Safe under annotations-as-strings (see __future__ import
+    # above) since the name is only ever used in a type position.
+    from oflow.shell.panel import Panel
 
 # Bound by the shell as priority bindings, which Textual checks ahead of the
 # focused widget. A panel that declared one of these would be silently ignored,
@@ -105,6 +111,11 @@ class Integration(Protocol):
     # declaration, not state.
     @property
     def manifest(self) -> Manifest: ...
+
+    @property
+    def panel_class(self) -> type[Panel]:
+        """The widget class the shell mounts for this integration's tab."""
+        ...
 
     def fetch(self, credentials: Credentials, http: httpx.Client) -> Sequence[Item]:
         """Return the integration's items. Raises IntegrationError, never anything else."""

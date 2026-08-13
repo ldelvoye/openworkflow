@@ -17,6 +17,7 @@ import httpx
 from oflow.auth.oauth import ProviderConfig
 from oflow.auth.store import Credentials
 from oflow.contract import Action, ActionClass, Manifest
+from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue, fetch
 
 PROVIDER = ProviderConfig(
@@ -39,6 +40,7 @@ MANIFEST = Manifest(
 @dataclass(frozen=True)
 class LinearIntegration:
     manifest: Manifest = MANIFEST
+    panel_class: type[LinearPanel] = LinearPanel
 
     def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
         return fetch(credentials, http)

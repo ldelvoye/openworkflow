@@ -17,6 +17,7 @@ from oflow.contract import (
     Unavailable,
 )
 from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.shell.panel import Panel
 
 PROVIDER = ProviderConfig(
     metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
@@ -44,6 +45,7 @@ class FakeIntegration:
     """
 
     manifest: Manifest
+    panel_class: type[Panel] = Panel
 
     def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
         return ()
