@@ -15,7 +15,12 @@ from pathlib import Path
 import tomli_w
 
 CONFIG_DIR_ENV = "OFLOW_CONFIG_DIR"
+
+# The modes every path under the config directory must have. They live together
+# because the guarantee is a single one — nothing here is readable by anyone but
+# its owner — and splitting them across modules invites the two to drift.
 DIRECTORY_MODE = 0o700
+FILE_MODE = 0o600
 
 
 class ConfigPermissionError(Exception):
