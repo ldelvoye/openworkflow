@@ -4,7 +4,6 @@ import pytest
 from textual import events
 from textual.app import App, ComposeResult
 
-from oflow.config import ConfigError
 from oflow.contract import Item
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
@@ -137,7 +136,7 @@ async def test_only_the_visible_tab_fetches_on_startup(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
         "oflow.shell.app.OflowApp.refresh_tab",
-        lambda self, integration_id, force=False: fetched.append(integration_id),
+        lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
     async with OflowApp(tabs=("alpha", "beta")).run_test():
         pass
@@ -149,7 +148,7 @@ async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
     fetched: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         "oflow.shell.app.OflowApp.refresh_tab",
-        lambda self, integration_id, force=False: fetched.append((integration_id, force)),
+        lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
     )
     async with OflowApp(tabs=("alpha",)).run_test() as pilot:
         fetched.clear()
@@ -162,7 +161,7 @@ async def test_switching_to_a_tab_fetches_it(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
         "oflow.shell.app.OflowApp.refresh_tab",
-        lambda self, integration_id, force=False: fetched.append(integration_id),
+        lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
     async with OflowApp(tabs=("alpha", "beta")).run_test() as pilot:
         fetched.clear()
@@ -214,7 +213,7 @@ async def test_app_regaining_focus_refreshes_the_active_tab(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
         "oflow.shell.app.OflowApp.refresh_tab",
-        lambda self, integration_id, force=False: fetched.append(integration_id),
+        lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
     async with OflowApp(tabs=("alpha",)).run_test() as pilot:
         fetched.clear()
@@ -228,11 +227,9 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
     """The end-to-end proof: no test-only panel.focus() call anywhere here."""
     issues = (issue("ENG-1"), issue("ENG-2"))
 
-    def fake_refresh(self, integration_id, force=False):
-        panel = self._panel_of(integration_id)
-        if panel is not None:
-            panel.items = issues
-            panel.state = PanelState.READY
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
@@ -251,11 +248,9 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 async def test_j_and_k_are_reserved_but_unbound(monkeypatch):
     issues = (issue("ENG-1"), issue("ENG-2"))
 
-    def fake_refresh(self, integration_id, force=False):
-        panel = self._panel_of(integration_id)
-        if panel is not None:
-            panel.items = issues
-            panel.state = PanelState.READY
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
@@ -288,11 +283,9 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
     opened: list[str] = []
     monkeypatch.setattr("oflow.shell.app.webbrowser.open", lambda url: opened.append(url))
 
-    def fake_refresh(self, integration_id, force=False):
-        panel = self._panel_of(integration_id)
-        if panel is not None:
-            panel.items = issues
-            panel.state = PanelState.READY
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
@@ -311,19 +304,22 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_failed_seen_save_does_not_crash_the_app_and_notifies_instead(monkeypatch):
+    """write_private_file/ensure_config_dir raise OSError directly on a real disk
+    failure (full disk, revoked permissions, read-only filesystem) — this is not
+    wrapped in a ConfigError, so the guard around seen.save() has to catch the
+    unwrapped type to actually survive one.
+    """
     issues = (issue("ENG-1"),)
     monkeypatch.setattr("oflow.shell.app.webbrowser.open", lambda url: None)
 
-    def fake_refresh(self, integration_id, force=False):
-        panel = self._panel_of(integration_id)
-        if panel is not None:
-            panel.items = issues
-            panel.state = PanelState.READY
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
     def refuse_save(self):
-        raise ConfigError("disk is full")
+        raise OSError("No space left on device")
 
     monkeypatch.setattr("oflow.state.SeenState.save", refuse_save)
 
@@ -340,6 +336,6 @@ async def test_a_failed_seen_save_does_not_crash_the_app_and_notifies_instead(mo
         await pilot.pause()
         panel = app.query_one(LinearPanel)
 
-    assert notified == ["disk is full"]
+    assert notified == ["No space left on device"]
     # The in-memory mark clears even though persisting it to disk failed.
     assert panel.seen.is_changed("linear", issues[0]) is False

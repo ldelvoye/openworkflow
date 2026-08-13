@@ -89,7 +89,7 @@ class OflowApp(App[None]):
         # startup tab. It doubles as the focus handoff so a panel's own arrow
         # bindings work the moment its tab becomes visible, startup included.
         panel = event.pane.query_one(Panel)
-        self.refresh_tab(event.pane.id or "")
+        self.refresh_tab(event.pane.id or "", panel)
         panel.focus()
 
     def on_app_focus(self) -> None:
@@ -98,8 +98,11 @@ class OflowApp(App[None]):
         Fires only where the terminal reports focus. Where it does not, this
         degrades to tab-switch and manual refresh, which is enough.
         """
-        if self.active_tab:
-            self.refresh_tab(self.active_tab)
+        if not self.active_tab:
+            return
+        panel = self._panel_of(self.active_tab)
+        if panel is not None:
+            self.refresh_tab(self.active_tab, panel)
 
     def _shift_tab(self, offset: int) -> None:
         if not self.tab_ids:
@@ -118,8 +121,11 @@ class OflowApp(App[None]):
         self.notify("tab/shift+tab switch tabs · r refresh · o open · q quit")
 
     def action_refresh(self) -> None:
-        if self.active_tab:
-            self.refresh_tab(self.active_tab, force=True)
+        if not self.active_tab:
+            return
+        panel = self._panel_of(self.active_tab)
+        if panel is not None:
+            self.refresh_tab(self.active_tab, panel, force=True)
 
     def action_open(self) -> None:
         integration_id = self.active_tab or ""
@@ -137,17 +143,22 @@ class OflowApp(App[None]):
         self.seen.mark_seen(integration_id, item)
         try:
             self.seen.save()
-        except (ConfigError, CredentialStoreError) as error:
-            # The in-memory mark above still stands; only persisting it failed,
-            # so this degrades to a notice rather than losing the open action.
+        except (ConfigError, OSError) as error:
+            # A save failure here is cosmetic — the mark above already cleared
+            # in memory — so the dashboard must keep running rather than crash:
+            # ConfigError covers a permissions refusal, OSError covers the disk
+            # itself (full, read-only, revoked access), which is what
+            # write_private_file/ensure_config_dir actually raise on failure.
             self.notify(str(error), severity="error")
         panel.refresh()
 
     @work(thread=True)
-    def refresh_tab(self, integration_id: str, force: bool = False) -> None:
-        panel = self._panel_of(integration_id)
-        if panel is None:
-            return
+    def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:
+        # panel is resolved by the caller on the UI thread and passed in rather
+        # than queried here: this method's body runs off the UI thread once
+        # @work(thread=True) dispatches it, and Textual widgets are not
+        # thread-safe to query or mutate from anywhere but the UI thread. Every
+        # mutation below still crosses back via call_from_thread.
         try:
             integration = get_integration(integration_id)
         except UnknownIntegration:
