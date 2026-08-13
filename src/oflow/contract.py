@@ -7,12 +7,16 @@ that the first integration does not need. Generalise when there are two.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
+import httpx
+
 from oflow.auth.oauth import ProviderConfig
+from oflow.auth.store import Credentials
 
 # Bound by the shell as priority bindings, which Textual checks ahead of the
 # focused widget. A panel that declared one of these would be silently ignored,
@@ -40,6 +44,22 @@ class Action:
     label: str
     key: str
     action_class: ActionClass
+
+
+@dataclass(frozen=True)
+class Item:
+    """The minimum the shell needs from any integration's data.
+
+    Change highlighting keys off updated_at and the launch action opens url, so
+    those two plus an identity are the whole shared vocabulary. Everything a
+    panel draws beyond this belongs to the integration that defined it — a
+    shared type carrying every field an integration might want would undo the
+    point of per-integration rendering.
+    """
+
+    id: str
+    updated_at: datetime
+    url: str
 
 
 @dataclass(frozen=True)
@@ -85,3 +105,7 @@ class Integration(Protocol):
     # declaration, not state.
     @property
     def manifest(self) -> Manifest: ...
+
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> Sequence[Item]:
+        """Return the integration's items. Raises IntegrationError, never anything else."""
+        ...

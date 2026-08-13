@@ -1,0 +1,44 @@
+{
+  "page1": {
+    "issues": [
+      {
+        "id": "INFRENG-446",
+        "title": "Dual-write new_id on OrganizationMemberTeam writes",
+        "status": "In Review",
+        "statusType": "started",
+        "updatedAt": "2026-08-12T22:35:05.790Z",
+        "url": "https://linear.app/getsentry/issue/INFRENG-446/dual-write",
+        "team": "Infrastructure Engineering",
+        "priority": { "value": 2, "name": "High" }
+      },
+      {
+        "id": "CTRL-8",
+        "title": "Add per-cell latency SLO for the API Gateway",
+        "status": "Done",
+        "statusType": "completed",
+        "updatedAt": "2026-08-12T23:22:41.283Z",
+        "url": "https://linear.app/getsentry/issue/CTRL-8/add-per-cell-latency-slo",
+        "team": "Control Plane",
+        "priority": { "value": 0, "name": "No priority" }
+      }
+    ],
+    "hasNextPage": true,
+    "cursor": "cursor-1"
+  },
+  "page2": {
+    "issues": [
+      {
+        "id": "INFRENG-467",
+        "title": "Remove dead organizationmember_teams replication option values",
+        "status": "Todo",
+        "statusType": "unstarted",
+        "updatedAt": "2026-08-11T22:52:53.552Z",
+        "url": "https://linear.app/getsentry/issue/INFRENG-467/remove-dead",
+        "team": "Infrastructure Engineering",
+        "priority": { "value": 3, "name": "Medium" }
+      }
+    ],
+    "hasNextPage": false,
+    "cursor": null
+  }
+}

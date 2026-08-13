@@ -12,8 +12,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
+import httpx
+
 from oflow.auth.oauth import ProviderConfig
+from oflow.auth.store import Credentials
 from oflow.contract import Action, ActionClass, Manifest
+from oflow.integrations.linear.source import Issue, fetch
 
 PROVIDER = ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
@@ -35,6 +39,9 @@ MANIFEST = Manifest(
 @dataclass(frozen=True)
 class LinearIntegration:
     manifest: Manifest = MANIFEST
+
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
+        return fetch(credentials, http)
 
 
 INTEGRATION = LinearIntegration()

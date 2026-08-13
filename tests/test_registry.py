@@ -1,14 +1,17 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
+import httpx
 import pytest
 
 from oflow.auth.oauth import ProviderConfig
+from oflow.auth.store import Credentials
 from oflow.contract import (
     Action,
     ActionClass,
     AuthExpired,
     IntegrationError,
+    Item,
     Malformed,
     Manifest,
     Unavailable,
@@ -34,7 +37,16 @@ def manifest(identifier: str = "fake", actions: tuple[Action, ...] = ()) -> Mani
 
 @dataclass(frozen=True)
 class FakeIntegration:
+    """Stands in for a real integration, so it satisfies the whole protocol.
+
+    A fake that implements less than the contract can pass a test that a real
+    integration would fail.
+    """
+
     manifest: Manifest
+
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Item, ...]:
+        return ()
 
 
 @pytest.fixture
