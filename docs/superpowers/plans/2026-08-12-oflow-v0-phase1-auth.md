@@ -812,6 +812,15 @@ the same environment gives keyring an insecure backend to pick instead."
 it), concurrent-refresh locking (Phase 2, when two tabs can refresh at once),
 token introspection, revocation.
 
+**Open decision — the loopback port.** `LOOPBACK_PORT = 8765` is fixed, so any
+local process can bind it first and receive the authorization code. PKCE makes a
+stolen code useless without the verifier, which is why this is tolerable rather
+than fatal, but a free port chosen at runtime would be better. The obstacle is
+that dynamic client registration pins `redirect_uris` at registration time.
+RFC 8252 §7.3 says an authorization server should accept any port on a loopback
+redirect regardless of what was registered — test whether Linear honours that
+before settling on the fixed port.
+
 Every test uses `httpx.MockTransport`. No test may make a real network call.
 
 - [ ] **Step 1: Record the metadata fixture**
