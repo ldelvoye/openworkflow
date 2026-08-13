@@ -2,7 +2,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from oflow.auth.store import Credentials, get_credentials, set_credentials
+from oflow.auth.store import (
+    Credentials,
+    CredentialStoreError,
+    get_credentials,
+    set_credentials,
+)
 from oflow.cli import main
 from oflow.config import Config, TabConfig, load_config, save_config
 from oflow.registry import known_integration_ids
@@ -99,6 +104,42 @@ def test_logout_still_deletes_when_revocation_fails(connected, revocation, capsy
 
     assert get_credentials("linear") is None
     assert "could not be revoked" in capsys.readouterr().out
+
+
+def test_connect_warns_about_scopes_beyond_the_request(monkeypatch, capsys):
+    over_scoped = Credentials("at", "rt", None, "read write")
+    monkeypatch.setattr("oflow.cli.run_login", lambda *args, **kwargs: ("client-abc", over_scoped))
+
+    assert main(["connect", "linear"]) == 0
+
+    captured = capsys.readouterr()
+    assert "write" in captured.err
+    assert "did not ask for" in captured.err
+    assert "connected Linear" in captured.out
+
+
+def test_connect_revokes_a_token_it_cannot_store(monkeypatch):
+    credentials = Credentials("at", "rt", None, "read")
+    monkeypatch.setattr("oflow.cli.run_login", lambda *args, **kwargs: ("client-abc", credentials))
+    revoked: list[tuple] = []
+    monkeypatch.setattr("oflow.cli._revoke", lambda *args: bool(revoked.append(args)) or True)
+
+    def refuse(*args):
+        raise CredentialStoreError("keychain refused")
+
+    monkeypatch.setattr("oflow.cli.set_credentials", refuse)
+
+    assert main(["connect", "linear"]) == 1
+    assert len(revoked) == 1
+
+
+def test_logout_deletes_credentials_for_a_deregistered_integration(capsys):
+    set_credentials("jira", LIVE)
+
+    assert main(["logout", "jira"]) == 0
+
+    assert get_credentials("jira") is None
+    assert "no longer supports" in capsys.readouterr().out
 
 
 def test_logout_when_already_disconnected_makes_no_revocation_call(revocation, capsys):

@@ -6,7 +6,7 @@ import argparse
 import http.server
 import secrets
 import sys
-import threading
+import time
 import urllib.parse
 import webbrowser
 
@@ -21,17 +21,49 @@ from oflow.auth.store import (
     now,
     set_credentials,
 )
-from oflow.config import TabConfig, add_tab, load_config, save_config
+from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
+from oflow.contract import Integration
 from oflow.registry import UnknownIntegration, get_integration
 
 LOGIN_TIMEOUT_SECONDS = 300
 
 
-def _callback_handler(received: dict[str, str]) -> type[http.server.BaseHTTPRequestHandler]:
+def _printable(value: str, limit: int = 120) -> str:
+    """Strip control characters from a string that reached us over the network.
+
+    Callback values are attacker-influenceable and land in a terminal, where
+    escape sequences would be interpreted rather than shown.
+    """
+    cleaned = "".join(character for character in value if character.isprintable())
+    return cleaned[:limit] or "(unspecified)"
+
+
+def _callback_handler(
+    expected_state: str, received: dict[str, str]
+) -> type[http.server.BaseHTTPRequestHandler]:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            received.update({key: value[0] for key, value in query.items()})
+            parsed = urllib.parse.urlparse(self.path)
+            query = {key: value[0] for key, value in urllib.parse.parse_qs(parsed.query).items()}
+            # A request that cannot prove it belongs to this login is refused
+            # without ending the wait. Otherwise any stray probe on this port
+            # consumes the callback and aborts a sign-in in progress, and a
+            # forged ?error= reads as a genuine refusal — state is the only
+            # thing distinguishing the provider's redirect from anyone else's.
+            # Compared as bytes: the str form of compare_digest rejects
+            # non-ASCII input with a TypeError, and this side of the comparison
+            # is whatever the caller sent.
+            if (
+                parsed.path != "/callback"
+                or not secrets.compare_digest(
+                    query.get("state", "").encode(), expected_state.encode()
+                )
+                or not query.keys() & {"code", "error"}
+            ):
+                self.send_response(404)
+                self.end_headers()
+                return
+            received.update(query)
             self.send_response(200)
             self.send_header("content-type", "text/plain; charset=utf-8")
             self.end_headers()
@@ -44,55 +76,62 @@ def _callback_handler(received: dict[str, str]) -> type[http.server.BaseHTTPRequ
 
 
 def run_login(
-    client: httpx.Client, provider: oauth.ProviderConfig, client_id: str | None
+    client: httpx.Client,
+    provider: oauth.ProviderConfig,
+    client_id: str | None,
+    port: int = oauth.LOOPBACK_PORT,
+    timeout: float = LOGIN_TIMEOUT_SECONDS,
 ) -> tuple[str, Credentials]:
     """Register if needed, take the user through the browser, return the tokens.
 
-    The client id is returned alongside the credentials because a first login
-    mints one, and it must be persisted so later logins reuse the registration.
+    The client id comes back alongside the credentials because a first login
+    mints one, and it has to be persisted so later logins reuse the registration.
     """
-    metadata = oauth.discover(client, provider)
-    if client_id is None:
-        client_id = oauth.register_client(client, metadata, provider, oauth.REDIRECT_URI)
-
     verifier, challenge = oauth.make_pkce_pair()
     state = secrets.token_urlsafe(16)
-    url = oauth.build_authorize_url(
-        metadata, client_id, oauth.REDIRECT_URI, challenge, provider.scopes, state
-    )
-
     received: dict[str, str] = {}
+
     try:
-        server = http.server.HTTPServer(
-            ("127.0.0.1", oauth.LOOPBACK_PORT), _callback_handler(received)
-        )
+        server = http.server.HTTPServer(("127.0.0.1", port), _callback_handler(state, received))
     except OSError as error:
         raise oauth.OAuthError(
-            f"port {oauth.LOOPBACK_PORT} is already in use, so the callback cannot be "
-            f"received. Close whatever is holding it and try again."
+            f"port {port} is already in use, so the callback cannot be received. "
+            f"Close whatever is holding it and try again."
         ) from error
 
-    thread = threading.Thread(target=server.handle_request, daemon=True)
-    thread.start()
-    print("opening your browser to authorize oflow")
-    print(f"if it does not open, paste this:\n{url}\n")
-    webbrowser.open(url)
-    thread.join(timeout=LOGIN_TIMEOUT_SECONDS)
-    server.server_close()
+    try:
+        # Bound before the redirect is built so an ephemeral port resolves to
+        # the one actually listening.
+        redirect_uri = oauth.redirect_uri_for(server.server_port)
+        metadata = oauth.discover(client, provider)
+        if client_id is None:
+            client_id = oauth.register_client(client, metadata, provider, redirect_uri)
 
-    if not received:
-        raise oauth.OAuthError("timed out waiting for the browser callback")
-    if "error" in received:
-        raise oauth.OAuthError(f"authorization was refused: {received['error']}")
-    if received.get("state") != state:
-        raise oauth.OAuthError("the callback did not come from this login attempt; aborting")
-    if "code" not in received:
-        raise oauth.OAuthError("the callback carried no authorization code")
+        url = oauth.build_authorize_url(
+            metadata, client_id, redirect_uri, challenge, provider.scopes, state
+        )
+        print("opening your browser to authorize oflow")
+        print(f"if it does not open, paste this:\n{url}\n")
+        webbrowser.open(url)
 
-    credentials = oauth.exchange_code(
-        client, metadata, client_id, received["code"], verifier, oauth.REDIRECT_URI
-    )
-    return client_id, credentials
+        # One deadline for the whole wait rather than per request, so a drip of
+        # stray requests cannot extend it indefinitely.
+        server.timeout = 1.0
+        deadline = time.monotonic() + timeout
+        while not received and time.monotonic() < deadline:
+            server.handle_request()
+
+        if not received:
+            raise oauth.OAuthError("timed out waiting for the browser callback")
+        if "error" in received:
+            raise oauth.OAuthError(f"authorization was refused: {_printable(received['error'])}")
+
+        credentials = oauth.exchange_code(
+            client, metadata, client_id, received["code"], verifier, redirect_uri
+        )
+        return client_id, credentials
+    finally:
+        server.server_close()
 
 
 def _connect(integration_id: str) -> int:
@@ -114,15 +153,39 @@ def _connect(integration_id: str) -> int:
             print(f"connect failed: {error}", file=sys.stderr)
             return 1
 
+    _warn_on_extra_scopes(integration, credentials)
+
     try:
         set_credentials(integration_id, credentials)
     except CredentialStoreError as error:
+        # The token is live and about to become unreachable — nothing will hold
+        # it, so nothing could revoke it later. Hand it back before giving up.
+        _revoke(integration.manifest.provider, client_id, credentials)
         print(str(error), file=sys.stderr)
         return 1
 
     save_config(add_tab(config, TabConfig(integration=integration_id, client_id=client_id)))
     print(f"connected {integration.manifest.display_name} (scope: {credentials.scope})")
     return 0
+
+
+def _warn_on_extra_scopes(integration: Integration, credentials: Credentials) -> None:
+    """Say so when the provider granted more than was asked for.
+
+    A warning rather than a refusal: providers may return their whole granted
+    set regardless of the request, and every call site here is read-only. The
+    cost of an over-scoped token is that it is a bigger prize if stolen, which
+    is worth knowing before deciding to keep it — hence before the success line.
+    """
+    extra = sorted(set(credentials.scope.split()) - set(integration.manifest.provider.scopes))
+    if not extra:
+        return
+    print(
+        f"warning: {integration.manifest.display_name} granted scopes oflow did not ask for: "
+        f"{', '.join(extra)}. Nothing here uses them, but the stored token can. "
+        f"Run 'oflow logout {integration.manifest.id}' to revoke it.",
+        file=sys.stderr,
+    )
 
 
 def _describe(credentials: Credentials) -> str:
@@ -166,24 +229,32 @@ def _revoke(provider: oauth.ProviderConfig, client_id: str, credentials: Credent
 
 
 def _logout(integration_id: str) -> int:
+    # Deleting must not depend on the registry. Credentials outlive an
+    # integration dropped from a build, and requiring it here would leave them
+    # stored with no command able to remove them.
+    integration: Integration | None = None
+    unsupported = ""
     try:
         integration = get_integration(integration_id)
     except UnknownIntegration as error:
-        print(str(error), file=sys.stderr)
-        return 1
+        unsupported = str(error)
 
-    tab = next(
-        (tab for tab in load_config().tabs if tab.integration == integration_id),
-        None,
-    )
     try:
         credentials = get_credentials(integration_id)
     except CredentialStoreError as error:
         print(str(error), file=sys.stderr)
         return 1
 
+    if integration is None and credentials is None:
+        print(unsupported, file=sys.stderr)
+        return 1
+
+    tab = next(
+        (tab for tab in load_config().tabs if tab.integration == integration_id),
+        None,
+    )
     revoked = False
-    if credentials is not None and tab is not None and tab.client_id is not None:
+    if integration is not None and credentials is not None and tab is not None and tab.client_id:
         revoked = _revoke(integration.manifest.provider, tab.client_id, credentials)
 
     try:
@@ -196,6 +267,11 @@ def _logout(integration_id: str) -> int:
         print(f"{integration_id}: already disconnected")
     elif revoked:
         print(f"logged out of {integration_id}; the token was revoked")
+    elif integration is None:
+        print(
+            f"deleted credentials for {integration_id}, which this build no longer supports. "
+            f"The token could not be revoked and stays valid until it expires."
+        )
     else:
         print(
             f"logged out of {integration_id}; the token could not be revoked and stays "
@@ -217,11 +293,17 @@ def main(argv: list[str] | None = None) -> int:
     logout.add_argument("integration")
 
     args = parser.parse_args(argv)
-    if args.command == "connect":
-        return _connect(args.integration)
-    if args.command == "status":
-        return _status()
-    return _logout(args.integration)
+    try:
+        if args.command == "connect":
+            return _connect(args.integration)
+        if args.command == "status":
+            return _status()
+        return _logout(args.integration)
+    except ConfigError as error:
+        # The config file is documented as hand-editable, so a broken one is a
+        # user mistake to report, not a traceback.
+        print(str(error), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":
