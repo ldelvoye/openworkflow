@@ -104,6 +104,40 @@ def test_expires_in_zero_is_an_expiry_not_an_absence(metadata):
     assert credentials.expires_at is not None
 
 
+def test_discover_rejects_a_plaintext_endpoint():
+    def handler(request):
+        return httpx.Response(
+            200, json=METADATA | {"token_endpoint": "http://mcp.linear.app/token"}
+        )
+
+    with pytest.raises(OAuthError, match="not https"):
+        discover(client_returning(handler), PROVIDER)
+
+
+def test_a_string_expires_in_is_accepted(metadata):
+    def handler(request):
+        return httpx.Response(
+            200, json={"access_token": "at-1", "expires_in": "3600", "scope": "read"}
+        )
+
+    credentials = exchange_code(
+        client_returning(handler), metadata, "client-abc", "code-1", "verifier-1", REDIRECT
+    )
+    assert credentials.expires_at is not None
+
+
+def test_a_non_numeric_expires_in_names_that_field(metadata):
+    def handler(request):
+        return httpx.Response(
+            200, json={"access_token": "at-1", "expires_in": "soon", "scope": "read"}
+        )
+
+    with pytest.raises(OAuthError, match="expires_in"):
+        exchange_code(
+            client_returning(handler), metadata, "client-abc", "code-1", "verifier-1", REDIRECT
+        )
+
+
 def test_pkce_challenge_is_s256_of_verifier():
     verifier, challenge = make_pkce_pair()
     expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest())

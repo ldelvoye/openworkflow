@@ -14,7 +14,7 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -43,7 +43,13 @@ __all__ = [
 # time. A local process can squat this port and receive the authorization code;
 # PKCE is what makes that code useless to it.
 LOOPBACK_PORT = 8765
-REDIRECT_URI = f"http://127.0.0.1:{LOOPBACK_PORT}/callback"
+
+
+def redirect_uri_for(port: int) -> str:
+    return f"http://127.0.0.1:{port}/callback"
+
+
+REDIRECT_URI = redirect_uri_for(LOOPBACK_PORT)
 
 
 class OAuthError(Exception):
@@ -82,6 +88,23 @@ def _json_object(response: httpx.Response, source: str) -> JsonObject:
     return payload
 
 
+def _require_https(url: str, name: str) -> str:
+    """Refuse a plaintext endpoint named by a metadata document.
+
+    The metadata itself arrives over verified TLS, but the endpoints inside it
+    are whatever the provider wrote. A contributed ProviderConfig pointing at a
+    server that advertises an http token endpoint would otherwise POST a refresh
+    token in the clear. The loopback redirect is exempt — it never passes here.
+    """
+    if urlsplit(url).scheme != "https":
+        raise OAuthError(f"the {name} endpoint is not https: {url}")
+    return url
+
+
+def _require_https_if_present(url: str | None, name: str) -> str | None:
+    return None if url is None else _require_https(url, name)
+
+
 def discover(client: httpx.Client, provider: ProviderConfig) -> ServerMetadata:
     try:
         response = client.get(provider.metadata_url)
@@ -92,10 +115,12 @@ def discover(client: httpx.Client, provider: ProviderConfig) -> ServerMetadata:
     payload = _json_object(response, "the metadata endpoint")
     try:
         return ServerMetadata(
-            authorization_endpoint=payload["authorization_endpoint"],
-            token_endpoint=payload["token_endpoint"],
-            registration_endpoint=payload["registration_endpoint"],
-            revocation_endpoint=payload.get("revocation_endpoint"),
+            authorization_endpoint=_require_https(payload["authorization_endpoint"], "authorize"),
+            token_endpoint=_require_https(payload["token_endpoint"], "token"),
+            registration_endpoint=_require_https(payload["registration_endpoint"], "registration"),
+            revocation_endpoint=_require_https_if_present(
+                payload.get("revocation_endpoint"), "revocation"
+            ),
             resource=payload.get("resource"),
         )
     except KeyError as error:
@@ -162,6 +187,15 @@ def _credentials_from_token_response(
     payload: JsonObject, fallback_refresh: str | None
 ) -> Credentials:
     expires_in = payload.get("expires_in")
+    # RFC 6749 says a number; some providers send it as a decimal string. Accept
+    # both, but say which field is wrong rather than blaming the access token.
+    if isinstance(expires_in, str):
+        try:
+            expires_in = int(expires_in)
+        except ValueError as error:
+            raise OAuthError(
+                f"token response gave a non-numeric expires_in: {expires_in!r}"
+            ) from error
     try:
         return Credentials(
             access_token=payload["access_token"],
