@@ -810,7 +810,10 @@ the same environment gives keyring an insecure backend to pick instead."
 
 **Out of scope:** the interactive browser/loopback orchestration (Task 6 owns
 it), concurrent-refresh locking (Phase 2, when two tabs can refresh at once),
-token introspection, revocation.
+token introspection.
+
+Revocation belongs here rather than in Task 6: `logout` needs it, and the
+alternative is reopening this module later to add a single function.
 
 **Open decision — the loopback port.** `LOOPBACK_PORT = 8765` is fixed, so any
 local process can bind it first and receive the authorization code. PKCE makes a
@@ -1428,6 +1431,16 @@ commit both together, since neither passes alone.
 **Out of scope:** the TUI, `oflow run`, fetching any issue data, a `source.py`
 or `panel.py` for Linear, refresh-on-launch. This phase ends when authentication
 works end to end.
+
+**`logout` must revoke, not just delete.** Deleting the local credentials leaves
+the access token valid for its remaining lifetime and the refresh token valid
+indefinitely, so anyone who captured them keeps their access — a command named
+`logout` that only forgets is misleading. Linear's metadata advertises
+`revocation_endpoint: https://mcp.linear.app/token`, so `logout` posts an
+RFC 7009 revocation for the refresh token first and treats deleting the local
+copy as cleanup afterwards. Revocation failing (offline, already revoked) must
+still delete locally, or a network problem would trap credentials on the
+machine.
 
 - [ ] **Step 1: Write the Linear manifest**
 
