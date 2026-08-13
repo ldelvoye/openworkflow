@@ -24,18 +24,9 @@ from oflow.auth.store import (
 from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from oflow.contract import Integration
 from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.text import printable
 
 LOGIN_TIMEOUT_SECONDS = 300
-
-
-def _printable(value: str, limit: int = 120) -> str:
-    """Strip control characters from a string that reached us over the network.
-
-    Callback values are attacker-influenceable and land in a terminal, where
-    escape sequences would be interpreted rather than shown.
-    """
-    cleaned = "".join(character for character in value if character.isprintable())
-    return cleaned[:limit] or "(unspecified)"
 
 
 def _callback_handler(
@@ -127,7 +118,7 @@ def run_login(
         if not received:
             raise oauth.OAuthError("timed out waiting for the browser callback")
         if "error" in received:
-            raise oauth.OAuthError(f"authorization was refused: {_printable(received['error'])}")
+            raise oauth.OAuthError(f"authorization was refused: {printable(received['error'])}")
 
         credentials = oauth.exchange_code(
             client, metadata, client_id, received["code"], verifier, redirect_uri
