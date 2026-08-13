@@ -1788,6 +1788,18 @@ own plan, written after this one lands — the contract in `contract.py` is
 deliberately provisional, and Phase 2's task detail depends on what it looks
 like once it has a real consumer.
 
+`Credentials.is_expired` compares against the expiry with no margin. The refresh
+scheduler will want "expires within N seconds" to count as expired, so a token
+is never used in the window between the check and the request landing. Add the
+skew allowance there rather than in the store, where a hardcoded margin would be
+invisible to callers.
+
+The loopback port is now injectable (`run_login(..., port=...)`), which is the
+seam for the RFC 8252 §7.3 question: if the provider accepts a callback on a
+port that was never registered, an ephemeral port removes both the squatting
+caveat and the port-in-use failure path. Run that experiment and record the
+outcome here either way — the design doc currently justifies a fixed port.
+
 One item for that plan: `RESERVED_KEYS` in `contract.py` is a hand-written copy
 of a binding table the shell does not have yet. When the shell declares its
 `BINDINGS`, derive the constant from them rather than keeping a parallel list.

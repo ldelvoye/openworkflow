@@ -12,7 +12,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      - run: uv sync --all-extras --dev
+      # --frozen so CI resolves exactly what uv.lock pins; without it the
+      # lockfile is committed but never actually exercised.
+      - run: uv sync --all-extras --dev --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
