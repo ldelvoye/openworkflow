@@ -32,7 +32,24 @@ Run on 2026-08-13 against `https://mcp.linear.app/mcp` with a stored token:
 - Responses are SSE-framed (`content-type: text/event-stream`) even for a single message: `event: message\ndata: {...}`.
 - `result` contains only `content`; there is no `structuredContent`. The payload is a JSON string inside `content[0].text`, whose top-level keys are `issues`, `hasNextPage`, `cursor`.
 
-**The handshake is still performed once per source instance.** It is not required today, and skipping it would save two requests at startup — but the MCP specification requires `initialize` before other requests, and relying on a server's tolerance for non-compliance is a dependency on someone else's leniency. Once per process is cheap insurance.
+**Protocol version, probed the same day.** Requesting `2025-06-18` is accepted;
+requesting a future date returns HTTP 400 rather than negotiating down; requesting
+an unknown old date makes the server name **`2025-11-25`**, which is its preference.
+The published sequence is `2024-11-05 → 2025-03-26 → 2025-06-18 → 2025-11-25 →
+2026-07-28`, so Linear's preference and ours both sit one revision behind
+current.
+
+The client therefore asks for `2025-11-25` — a version verified end to end, not the
+newest that exists, because a server may reject an unrecognised version outright
+instead of negotiating. `2026-07-28` removes the handshake entirely in favour of a
+stateless design with per-request `_meta` and mandatory `Mcp-Method`/`Mcp-Name`
+headers; a server on that revision needs a separate transport path.
+
+**The handshake is performed once per source instance, and it is load-bearing.**
+It was originally justified as a compliance gesture, since a bare `tools/call`
+works. The probe showed it is the only way to learn which revision a server
+actually speaks — so `initialize` captures the negotiated version and every later
+request carries it.
 
 ---
 
@@ -44,7 +61,9 @@ Run on 2026-08-13 against `https://mcp.linear.app/mcp` with a stored token:
 **Interfaces:**
 - Consumes: `oflow.contract.AuthExpired`, `Unavailable`, `Malformed`.
 - Produces:
-  - `MCP_PROTOCOL_VERSION = "2025-06-18"`
+  - `MCP_PROTOCOL_VERSION = "2025-11-25"`, `SUPPORTED_PROTOCOL_VERSIONS`
+  - `initialize()` adopts the version the server names, refusing one outside the
+    supported set
   - `McpClient(endpoint: str, token: str, http: httpx.Client)` — `initialize()` and
     `call_tool(name: str, arguments: dict) -> dict` (the decoded payload, already
     unwrapped from SSE, JSON-RPC envelope, and the text block).
@@ -225,7 +244,7 @@ import httpx
 
 from oflow.contract import AuthExpired, Malformed, Unavailable
 
-MCP_PROTOCOL_VERSION = "2025-06-18"
+MCP_PROTOCOL_VERSION = "2025-11-25"
 
 
 class McpClient:

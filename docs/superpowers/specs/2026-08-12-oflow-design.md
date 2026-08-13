@@ -68,6 +68,10 @@ is scoped to a different audience than Linear's GraphQL API, so MCP is probably
 the only door rather than a preference. Worth confirming while building PR 4,
 since it decides whether the Linear source has a fallback at all.
 
+The MCP revision we speak, how to recognise that a server has moved past it, and
+what upgrading costs, are recorded in `docs/mcp-protocol.md` — a durable document
+rather than this one.
+
 ## Scope
 
 **v0 — foundation.** Auth, credential storage, the integration contract, the
