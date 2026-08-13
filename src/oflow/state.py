@@ -31,9 +31,9 @@ class SeenState:
             return cls({})
         try:
             raw = json.loads(path.read_text())
-        except ValueError:
-            # Losing highlight history is a cosmetic setback, so a corrupt file
-            # starts over rather than blocking the dashboard.
+        except (ValueError, OSError):
+            # Losing highlight history is a cosmetic setback, so a corrupt or
+            # unreadable file starts over rather than blocking the dashboard.
             return cls({})
         if not isinstance(raw, dict):
             return cls({})
@@ -42,7 +42,8 @@ class SeenState:
         seen = {}
         for integration_id, entries in raw.items():
             if isinstance(entries, dict):
-                # Keep only string-keyed, string-valued entries
+                # A malformed stamp is dropped on its own; it does not take the
+                # rest of that integration's otherwise-valid entries with it.
                 validated = {
                     k: v for k, v in entries.items() if isinstance(k, str) and isinstance(v, str)
                 }

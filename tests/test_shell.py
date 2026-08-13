@@ -1,16 +1,19 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from textual import events
 from textual.app import App, ComposeResult
 
-from oflow.contract import Item
+from oflow.auth.store import Credentials
+from oflow.contract import AuthExpired, Item, Malformed, Unavailable
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
 from oflow.shell.panel import Panel, PanelState
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+CREDENTIALS = Credentials("token-abc", None, None, "read")
 
 
 @pytest.fixture(autouse=True)
@@ -339,3 +342,83 @@ async def test_a_failed_seen_save_does_not_crash_the_app_and_notifies_instead(mo
     assert notified == ["No space left on device"]
     # The in-memory mark clears even though persisting it to disk failed.
     assert panel.seen.is_changed("linear", issues[0]) is False
+
+
+# --- Task 7: the error taxonomy drives distinct panel states ---
+
+
+class _RaisingIntegration:
+    """A fake integration whose fetch always fails with a given IntegrationError."""
+
+    def __init__(self, error: Exception) -> None:
+        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5))
+        self.panel_class = Panel
+        self._error = error
+
+    def fetch(self, credentials, http):
+        raise self._error
+
+
+def _stub_credentials(monkeypatch) -> None:
+    monkeypatch.setattr("oflow.shell.app.get_credentials", lambda integration_id: CREDENTIALS)
+
+
+@pytest.mark.asyncio
+async def test_malformed_is_always_error_even_when_items_exist(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "oflow.shell.app.get_integration",
+        lambda integration_id: _RaisingIntegration(Malformed("issue shape changed")),
+    )
+
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(Panel)
+        panel.items = (item(),)  # simulate previously-good data
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+
+    assert panel.state is PanelState.ERROR
+    assert "issue shape changed" in panel.message
+
+
+@pytest.mark.asyncio
+async def test_auth_expired_is_always_error_with_a_reconnect_hint(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "oflow.shell.app.get_integration",
+        lambda integration_id: _RaisingIntegration(AuthExpired("token rejected")),
+    )
+
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(Panel)
+        panel.items = (item(),)  # simulate previously-good data
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+
+    assert panel.state is PanelState.ERROR
+    assert "run: oflow connect linear" in panel.message
+
+
+@pytest.mark.asyncio
+async def test_unavailable_keeps_stale_items_but_errors_when_empty(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "oflow.shell.app.get_integration",
+        lambda integration_id: _RaisingIntegration(Unavailable("linear is down")),
+    )
+
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(Panel)
+        assert panel.state is PanelState.ERROR  # no prior items to fall back on
+
+        panel.items = (item(),)
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+
+    assert panel.state is PanelState.STALE

@@ -14,7 +14,7 @@ from textual.widgets import Footer, Static, TabbedContent, TabPane
 
 from oflow.auth.store import CredentialStoreError, get_credentials, now
 from oflow.config import ConfigError
-from oflow.contract import IntegrationError, Item
+from oflow.contract import AuthExpired, IntegrationError, Item, Malformed
 from oflow.registry import UnknownIntegration, get_integration
 from oflow.shell.panel import Panel, PanelState
 from oflow.state import SeenState
@@ -182,6 +182,16 @@ class OflowApp(App[None]):
         try:
             with httpx.Client(timeout=30) as http:
                 items = tuple(integration.fetch(credentials, http))
+        except Malformed as error:
+            # The tab itself is broken, not just momentarily unreachable — stale
+            # data would promise a recovery that a shape mismatch cannot deliver.
+            self.call_from_thread(self._show_error, panel, str(error))
+            return
+        except AuthExpired as error:
+            self.call_from_thread(
+                self._show_error, panel, f"{error} — run: oflow connect {integration_id}"
+            )
+            return
         except IntegrationError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
             return

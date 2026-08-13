@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import keyring
-from keyring.errors import PasswordDeleteError
+from keyring.errors import KeyringError, PasswordDeleteError
 
 from oflow.config import (
     FILE_MODE,
@@ -163,8 +163,15 @@ class _FileStore:
         if not path.exists() and not path.is_symlink():
             return {}
         _translate_permission_error(lambda: require_private_path(path, FILE_MODE))
+        # Callers branch on CredentialStoreError to decide whether to keep going;
+        # a bare OSError (unreadable file, revoked permissions mid-session) must
+        # degrade the same way a permission refusal does, not crash the caller.
         try:
-            return json.loads(path.read_text())
+            text = path.read_text()
+        except OSError as error:
+            raise CredentialStoreError(str(error)) from error
+        try:
+            return json.loads(text)
         except ValueError as error:
             raise MalformedCredentialsError(f"{path} is not valid JSON") from error
 
@@ -172,14 +179,27 @@ class _FileStore:
         _translate_permission_error(ensure_config_dir)
         # Atomic replace matters more here than for config: this file holds the
         # refresh token, so a truncated write costs a login.
-        write_private_file(self._path(), json.dumps(payload))
+        try:
+            write_private_file(self._path(), json.dumps(payload))
+        except OSError as error:
+            raise CredentialStoreError(str(error)) from error
 
 
 class _KeyringStore:
-    """The OS keychain, entered under one account per integration."""
+    """The OS keychain, entered under one account per integration.
+
+    keyring.errors.KeyringError is not a CredentialStoreError — it is the
+    backend's own hierarchy. Callers branch on CredentialStoreError to decide
+    whether to keep going, so every call into keyring is translated here: a
+    locked keychain or a denied prompt must degrade like any other store
+    failure, not crash whoever called us.
+    """
 
     def get(self, integration_id: str) -> Credentials | None:
-        stored = keyring.get_password(SERVICE, integration_id)
+        try:
+            stored = keyring.get_password(SERVICE, integration_id)
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
         if stored is None:
             return None
         try:
@@ -191,13 +211,18 @@ class _KeyringStore:
         return _from_dict(decoded)
 
     def set(self, integration_id: str, credentials: Credentials) -> None:
-        keyring.set_password(SERVICE, integration_id, json.dumps(_to_dict(credentials)))
+        try:
+            keyring.set_password(SERVICE, integration_id, json.dumps(_to_dict(credentials)))
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
 
     def delete(self, integration_id: str) -> None:
         try:
             keyring.delete_password(SERVICE, integration_id)
         except PasswordDeleteError:
             pass
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
 
 
 def _translate_permission_error(check) -> None:

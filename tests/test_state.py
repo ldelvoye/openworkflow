@@ -74,6 +74,15 @@ def test_a_shape_malformed_state_file_is_treated_as_empty():
     assert SeenState.load().is_changed("linear", item()) is True
 
 
+def test_a_directory_at_the_state_path_is_treated_as_empty():
+    # An unreadable state.json (permissions, or something else sitting at that
+    # path) must degrade like any other corrupt file rather than crash startup.
+    state_path().parent.mkdir(parents=True, exist_ok=True)
+    state_path().mkdir()
+
+    assert SeenState.load().is_changed("linear", item()) is True
+
+
 def test_a_state_file_with_non_string_stamps_is_treated_as_partial_corrupt():
     # Stamp value is an int, not a string
     state_path().parent.mkdir(parents=True, exist_ok=True)
