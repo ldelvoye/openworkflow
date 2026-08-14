@@ -7,10 +7,13 @@ like "[red]x[/red]" cannot style or hide anything in the panel.
 
 from __future__ import annotations
 
+import webbrowser
+
 from rich.text import Text
 from textual.app import RenderResult
 from textual.binding import Binding
 
+from oflow.config import ConfigError
 from oflow.integrations.linear.source import Issue
 from oflow.shell.panel import Panel, PanelState
 from oflow.state import SeenState
@@ -33,11 +36,18 @@ def _priority_glyph(priority: str) -> str:
 
 
 class LinearPanel(Panel):
-    # Up/down are deliberately unreserved shell-wide (see contract.RESERVED_KEYS)
-    # so an integration's panel can own in-panel navigation.
+    # Up/down and "o" are deliberately unreserved shell-wide (see
+    # contract.RESERVED_KEYS) so an integration's panel can own in-panel
+    # navigation and its launch action. Keep both cursor actions' descriptions
+    # identical so the shell's help overlay merges them into one row. All three
+    # are show=False: up/down read as obvious once the panel is focused, and
+    # "o" belongs only in the help overlay's integration section, not the
+    # footer — opening a browser is a declared launch action, allowed
+    # alongside the rule that this panel does no network calls of its own.
     BINDINGS = [
-        Binding("down", "cursor_down", "down", show=False),
-        Binding("up", "cursor_up", "up", show=False),
+        Binding("up", "cursor_up", "select issue", show=False),
+        Binding("down", "cursor_down", "select issue", show=False),
+        Binding("o", "open_selected", "open in browser", show=False),
     ]
     can_focus = True
 
@@ -47,11 +57,32 @@ class LinearPanel(Panel):
         self.integration_id = "linear"
         self.cursor = 0
 
-    def selected_url(self) -> str | None:
+    def _selected_issue(self) -> Issue | None:
         issues = self._grouped()
         if not issues:
             return None
-        return issues[self._clamped_cursor(len(issues))].url
+        return issues[self._clamped_cursor(len(issues))]
+
+    def selected_url(self) -> str | None:
+        issue = self._selected_issue()
+        return issue.url if issue is not None else None
+
+    def action_open_selected(self) -> None:
+        issue = self._selected_issue()
+        if issue is None:
+            return
+        webbrowser.open(issue.url)
+        self.seen.mark_seen(self.integration_id, issue)
+        try:
+            self.seen.save()
+        except (ConfigError, OSError) as error:
+            # A save failure here is cosmetic — the mark above already cleared
+            # in memory — so the panel must keep running rather than crash:
+            # ConfigError covers a permissions refusal, OSError covers the disk
+            # itself (full, read-only, revoked access), which is what
+            # write_private_file/ensure_config_dir actually raise on failure.
+            self.notify(str(error), severity="error")
+        self.refresh()
 
     def action_cursor_down(self) -> None:
         self._move(1)

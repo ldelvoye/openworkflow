@@ -24,10 +24,14 @@ if TYPE_CHECKING:
     # above) since the name is only ever used in a type position.
     from oflow.shell.panel import Panel
 
-# Bound by the shell as priority bindings, which Textual checks ahead of the
-# focused widget. A panel that declared one of these would be silently ignored,
-# so the manifest rejects it outright instead.
-RESERVED_KEYS = frozenset[str]({"r", "q", "?", "tab", "escape", "j", "k", "enter"})
+# Exactly the keys the shell binds, plus escape (HelpOverlay's own binding to
+# dismiss itself — a ModalScreen's bindings take precedence over the app's).
+# The rest are checked ahead of the focused widget via priority=True. Either
+# way, a panel that declared one of these would be silently ignored, so the
+# manifest rejects it outright instead. Reserve a key only once something
+# actually binds it; j, k, tab, and enter are free until a future shell
+# binding needs one back (e.g. a detail pane re-adding enter).
+RESERVED_KEYS = frozenset[str]({"r", "q", "?", "escape", "shift+left", "shift+right"})
 
 
 class ActionClass(StrEnum):

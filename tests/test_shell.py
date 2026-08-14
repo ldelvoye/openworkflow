@@ -4,13 +4,16 @@ from types import SimpleNamespace
 import pytest
 from textual import events
 from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 from oflow.auth.store import Credentials
 from oflow.contract import AuthExpired, Item, Malformed, Unavailable
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
+from oflow.shell.help import HelpOverlay
 from oflow.shell.panel import Panel, PanelState
+from oflow.shell.terminal_palette import TerminalPalette
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 CREDENTIALS = Credentials("token-abc", None, None, "read")
@@ -139,11 +142,11 @@ async def test_q_quits():
 
 
 @pytest.mark.asyncio
-async def test_tab_switches_between_tabs():
+async def test_shift_right_switches_to_the_next_tab():
     app = OflowApp(tabs=("alpha", "beta"))
     async with app.run_test() as pilot:
         assert app.active_tab == "alpha"
-        await pilot.press("tab")
+        await pilot.press("shift+right")
         assert app.active_tab == "beta"
 
 
@@ -184,7 +187,7 @@ async def test_switching_to_a_tab_fetches_it(monkeypatch):
     )
     async with OflowApp(tabs=("alpha", "beta")).run_test() as pilot:
         fetched.clear()
-        await pilot.press("tab")
+        await pilot.press("shift+right")
     assert fetched == ["beta"]
 
 
@@ -208,7 +211,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
     )
 
     async with OflowApp(tabs=("alpha", "beta")).run_test() as pilot:
-        await pilot.press("tab")
+        await pilot.press("shift+right")
         await pilot.app.workers.wait_for_complete()
 
     assert scheduled == []
@@ -254,7 +257,7 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
     app = OflowApp(tabs=("alpha", "linear"))
     async with app.run_test() as pilot:
-        await pilot.press("tab")
+        await pilot.press("shift+right")
         await pilot.pause()
         await pilot.press("down")
         await pilot.pause()
@@ -264,7 +267,10 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_j_and_k_are_reserved_but_unbound(monkeypatch):
+async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
+    """j and k are no longer reserved — an integration may bind them — but the
+    shell itself still doesn't, so pressing them here is a no-op either way.
+    """
     issues = (issue("ENG-1"), issue("ENG-2"))
 
     def fake_refresh(self, integration_id, panel, force=False):
@@ -298,9 +304,15 @@ async def test_the_app_injects_its_seen_state_into_every_panel_that_tracks_it():
 
 @pytest.mark.asyncio
 async def test_opening_an_item_clears_its_change_mark(monkeypatch):
+    """The "o" key is now LinearPanel's own binding (see action_open_selected),
+    so this stays pilot-driven through the full app — the panel is focused as
+    soon as its tab is active — but the patch target moves with the import.
+    """
     issues = (issue("ENG-1"), issue("ENG-2"))
     opened: list[str] = []
-    monkeypatch.setattr("oflow.shell.app.webbrowser.open", lambda url: opened.append(url))
+    monkeypatch.setattr(
+        "oflow.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
+    )
 
     def fake_refresh(self, integration_id, panel, force=False):
         panel.items = issues
@@ -318,45 +330,6 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
         await pilot.pause()
 
     assert opened == [issues[0].url]
-    assert panel.seen.is_changed("linear", issues[0]) is False
-
-
-@pytest.mark.asyncio
-async def test_a_failed_seen_save_does_not_crash_the_app_and_notifies_instead(monkeypatch):
-    """write_private_file/ensure_config_dir raise OSError directly on a real disk
-    failure (full disk, revoked permissions, read-only filesystem) — this is not
-    wrapped in a ConfigError, so the guard around seen.save() has to catch the
-    unwrapped type to actually survive one.
-    """
-    issues = (issue("ENG-1"),)
-    monkeypatch.setattr("oflow.shell.app.webbrowser.open", lambda url: None)
-
-    def fake_refresh(self, integration_id, panel, force=False):
-        panel.items = issues
-        panel.state = PanelState.READY
-
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
-
-    def refuse_save(self):
-        raise OSError("No space left on device")
-
-    monkeypatch.setattr("oflow.state.SeenState.save", refuse_save)
-
-    notified: list[str] = []
-    monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.notify",
-        lambda self, message, **kwargs: notified.append(message),
-    )
-
-    app = OflowApp(tabs=("linear",))
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("o")
-        await pilot.pause()
-        panel = app.query_one(LinearPanel)
-
-    assert notified == ["No space left on device"]
-    # The in-memory mark clears even though persisting it to disk failed.
     assert panel.seen.is_changed("linear", issues[0]) is False
 
 
@@ -438,3 +411,219 @@ async def test_unavailable_keeps_stale_items_but_errors_when_empty(monkeypatch):
         await pilot.app.workers.wait_for_complete()
 
     assert panel.state is PanelState.STALE
+
+
+# --- The `?` help overlay ---
+
+
+def _line_with(text: str, needle: str) -> str:
+    return next(line for line in text.splitlines() if needle in line)
+
+
+@pytest.mark.asyncio
+async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
+    """The footer already shows the shell keys, so the overlay carries only
+    the active tab's section: title = integration id, rows from the panel's
+    own BINDINGS plus the manifest's actions, deduped by key.
+    """
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+
+        assert isinstance(app.screen, HelpOverlay)
+        text = app.screen.body_text()
+
+    assert "linear" in text
+    # The manifest-declared action (Action(id="open", label="Open in Linear",
+    # key="o", ...) in linear/manifest.py), not a hardcoded string.
+    assert _line_with(text, "Open in Linear").strip().startswith("o")
+    # LinearPanel also binds "o" (action_open_selected, label "open in
+    # browser") — the manifest's label wins, so the panel's own label for
+    # that key never shows up as a second row.
+    assert "open in browser" not in text
+    # The panel's own up/down BINDINGS, merged onto one row (see LinearPanel.BINDINGS).
+    assert _line_with(text, "select issue").strip().startswith("↑ / ↓")
+
+
+@pytest.mark.asyncio
+async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
+    """Regression guard for the overlay rendering as a tiny empty box.
+
+    body_text() alone is not proof of anything visible: it returned this exact
+    string even when the content widget's composed region was 0x0 (Static has
+    no width of its own inside an auto-width parent — see help.py's
+    DEFAULT_CSS). This measures the actual composed widget and its rendered
+    lines instead, with a floor tied to the real content rather than an
+    arbitrary constant.
+    """
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+
+        overlay = app.screen
+        assert isinstance(overlay, HelpOverlay)
+        content = overlay.query_one(Static)
+        body_lines = overlay.body_text().splitlines()
+
+        assert content.size.height >= len(body_lines)
+        assert content.size.width >= max(len(line) for line in body_lines)
+
+        rendered = [content.render_line(y).text for y in range(content.size.height)]
+
+    title_line = next(line for line in rendered if line.strip() == "linear")
+    assert title_line.strip() == "linear"
+    select_issue_line = next(line for line in rendered if "select issue" in line)
+    assert select_issue_line.strip().startswith("↑ / ↓")
+
+
+@pytest.mark.asyncio
+async def test_escape_closes_the_help_overlay():
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpOverlay)
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, HelpOverlay)
+
+
+@pytest.mark.asyncio
+async def test_question_mark_again_also_closes_the_overlay():
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+        assert isinstance(app.screen, HelpOverlay)
+
+        await pilot.press("?")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, HelpOverlay)
+
+
+@pytest.mark.asyncio
+async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
+    fetched: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        "oflow.shell.app.OflowApp.refresh_tab",
+        lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
+    )
+    app = OflowApp(tabs=("alpha", "linear"))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        fetched.clear()
+        await pilot.press("shift+right")
+        await pilot.press("r")
+        await pilot.pause()
+
+    assert fetched == [("linear", False), ("linear", True)]
+
+
+@pytest.mark.asyncio
+async def test_no_tabs_help_overlay_shows_the_connect_hint():
+    app = OflowApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+
+        assert isinstance(app.screen, HelpOverlay)
+        text = app.screen.body_text()
+
+    # With no integration to reference, the overlay falls back to the same
+    # connect hint the app's own empty state shows — a single line.
+    assert text == app.empty_hint
+
+
+@pytest.mark.asyncio
+async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_crash():
+    # "alpha" has no integration (see _panel_for's UnknownIntegration handling
+    # elsewhere in this file); _help_tab_section's own except UnknownIntegration
+    # branch must produce an empty tab section rather than raising.
+    app = OflowApp(tabs=("alpha",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+
+        assert isinstance(app.screen, HelpOverlay)
+        text = app.screen.body_text()
+
+    assert "alpha" in text
+
+
+# --- Trimmed system commands (Change 2) ---
+
+
+@pytest.mark.asyncio
+async def test_system_commands_drop_maximize_and_theme_but_keep_the_rest():
+    app = OflowApp(tabs=("linear",))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = pilot.app.screen
+        commands = list(app.get_system_commands(screen))
+
+    # Pins the actual mechanism (callback identity — see get_system_commands)
+    # rather than title strings, so a future Textual rename of these titles
+    # cannot silently stop them from being dropped without this test noticing.
+    dropped_callbacks = {
+        app.action_change_theme,
+        app.action_hide_help_panel,
+        app.action_show_help_panel,
+        screen.action_maximize,
+        screen.action_minimize,
+    }
+    assert {command.callback for command in commands}.isdisjoint(dropped_callbacks)
+
+    titles = {command.title for command in commands}
+    assert titles.isdisjoint({"Theme", "Keys", "Maximize", "Minimize"})
+    # The command palette itself, copy-to-clipboard, and screenshot all stay;
+    # Quit and Screenshot are the two that surface as system commands.
+    assert {"Quit", "Screenshot"} <= titles
+
+
+# --- Screenshot export uses the learned terminal palette ---
+
+
+PALETTE = TerminalPalette(
+    background=(10, 20, 30),
+    foreground=(200, 210, 220),
+    ansi=tuple((index, index, index) for index in range(16)),
+)
+
+
+@pytest.mark.asyncio
+async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
+    app = OflowApp(tabs=("linear",), palette=PALETTE)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        svg = app.export_screenshot()
+
+    assert "#0a141e" in svg  # PALETTE.background, hex
+    assert "#292929" not in svg  # Rich's generic SVG_EXPORT_THEME fallback background
+
+
+@pytest.mark.asyncio
+async def test_screenshot_without_a_palette_keeps_the_current_fallback_mapping():
+    app = OflowApp(tabs=("linear",))  # no palette — the query found nothing
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        svg = app.export_screenshot()
+
+    # Unchanged from Textual's own App.export_screenshot: Rich's generic
+    # SVG_EXPORT_THEME background, since no theme is passed to export_svg.
+    assert "#292929" in svg

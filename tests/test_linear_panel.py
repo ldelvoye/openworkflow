@@ -170,6 +170,54 @@ async def test_pressing_the_down_key_moves_the_selection_through_the_real_bindin
 
 
 @pytest.mark.asyncio
+async def test_pressing_o_opens_the_selected_issue_and_clears_its_change_mark(monkeypatch):
+    opened: list[str] = []
+    monkeypatch.setattr(
+        "oflow.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
+    )
+    monkeypatch.setattr("oflow.state.SeenState.save", lambda self: None)
+
+    panel = panel_with(issue("ENG-1"), issue("ENG-2"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        panel.focus()
+        await pilot.pause()
+        assert panel.seen.is_changed("linear", issue("ENG-1")) is True
+
+        await pilot.press("o")
+        await pilot.pause()
+
+    assert opened == ["https://linear.app/x/issue/ENG-1"]
+    assert panel.seen.is_changed("linear", issue("ENG-1")) is False
+
+
+def test_a_failed_seen_save_does_not_crash_and_notifies_instead(monkeypatch):
+    """write_private_file/ensure_config_dir raise OSError directly on a real disk
+    failure (full disk, revoked permissions, read-only filesystem) — this is not
+    wrapped in a ConfigError, so the guard around seen.save() has to catch the
+    unwrapped type to actually survive one.
+    """
+    monkeypatch.setattr("oflow.integrations.linear.panel.webbrowser.open", lambda url: None)
+
+    def refuse_save(self):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("oflow.state.SeenState.save", refuse_save)
+
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "oflow.integrations.linear.panel.LinearPanel.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    panel = panel_with(issue("ENG-1"))
+    panel.action_open_selected()
+
+    assert notified == ["No space left on device"]
+    # The in-memory mark clears even though persisting it to disk failed.
+    assert panel.seen.is_changed("linear", issue("ENG-1")) is False
+
+
+@pytest.mark.asyncio
 async def test_a_hostile_title_is_never_interpreted_as_markup_in_the_real_render():
     hostile = replace(issue("ENG-1"), title="[red]x[/red]")
     panel = panel_with(hostile)

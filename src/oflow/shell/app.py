@@ -2,22 +2,54 @@
 
 from __future__ import annotations
 
-import webbrowser
+import io
+from collections.abc import Iterable
 from datetime import datetime
 
 import httpx
+from rich.console import Console
+from rich.terminal_theme import TerminalTheme
 from textual import work
-from textual.app import App, ComposeResult
+from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
 from oflow.auth.store import CredentialStoreError, get_credentials, now
-from oflow.config import ConfigError
-from oflow.contract import AuthExpired, IntegrationError, Item, Malformed
+from oflow.contract import Action, AuthExpired, IntegrationError, Item, Malformed
 from oflow.registry import UnknownIntegration, get_integration
+from oflow.shell.help import HelpOverlay, Row, Section
 from oflow.shell.panel import Panel, PanelState
+from oflow.shell.terminal_palette import TerminalPalette
 from oflow.state import SeenState
+
+
+def _rows_from_bindings(app: App[None], bindings: Iterable[object]) -> list[Row]:
+    """One row per description; adjacent bindings that share one (e.g. up/down
+    both "select issue") merge onto a single row with their keys joined, since
+    they read as one action to the user rather than two.
+    """
+    rows: list[Row] = []
+    for binding in bindings:
+        if not isinstance(binding, Binding):
+            continue
+        key = app.get_key_display(binding)
+        if rows and rows[-1][1] == binding.description:
+            rows[-1] = (f"{rows[-1][0]} / {key}", binding.description)
+        else:
+            rows.append((key, binding.description))
+    return rows
+
+
+def _rows_from_actions(app: App[None], actions: Iterable[Action]) -> list[Row]:
+    # Routed through get_key_display, same as bindings above, so a future
+    # action keyed by a named key (e.g. "enter") still renders consistently.
+    rows: list[Row] = []
+    for action in actions:
+        key = app.get_key_display(Binding(action.key, "", action.label))
+        rows.append((key, action.label))
+    return rows
 
 
 class OflowApp(App[None]):
@@ -26,31 +58,38 @@ class OflowApp(App[None]):
     """
 
     # priority=True is checked ahead of the focused widget, so a panel cannot
-    # capture these by binding the same key.
+    # capture these by binding the same key. The footer groups entries by
+    # action, not by key, so shift+left and shift+right — different actions —
+    # would otherwise show as two separate entries; shift+right carries the
+    # merged key_display for both directions and shift+left stays hidden
+    # (show=False) so the footer shows a single "switch tab" entry.
     BINDINGS = [
-        Binding("q", "quit", "quit", priority=True),
-        Binding("question_mark", "help", "help", priority=True),
-        Binding("tab", "next_tab", "next tab", priority=True),
-        Binding("shift+tab", "previous_tab", "previous tab", priority=True),
+        Binding("shift+left", "previous_tab", "switch tab", priority=True, show=False),
+        Binding(
+            "shift+right",
+            "next_tab",
+            "switch tab",
+            priority=True,
+            key_display="⇧ + ← / ⇧ + →",
+        ),
         Binding("r", "refresh", "refresh", priority=True),
-        Binding("o", "open", "open in browser"),
+        Binding("question_mark", "help", "help", priority=True),
+        Binding("q", "quit", "quit", priority=True),
     ]
 
-    def __init__(self, tabs: tuple[str, ...]) -> None:
+    def __init__(self, tabs: tuple[str, ...], palette: TerminalPalette | None = None) -> None:
         super().__init__()
-        # This dashboard sits in the user's terminal all day, so it adopts the
-        # terminal's own palette rather than imposing one: "ansi-dark" is
-        # Textual's built-in theme whose background/foreground/chrome variables
-        # resolve to the terminal's native ANSI colors (ansi_default and the 16
-        # standard names) instead of the fixed truecolor hex values every other
-        # built-in theme paints. Named ANSI colors used in our own styling (e.g.
-        # linear/panel.py's CHANGE_STYLE) render through the terminal's palette
-        # only once this is active.
+        # Adopts the terminal's own palette instead of imposing one: unlike
+        # every other built-in theme, ansi-dark resolves through the terminal's
+        # native ANSI colors. Named ANSI styles elsewhere depend on this being on.
         self.theme = "ansi-dark"
         self.tab_ids = tabs
         self.empty_hint = "no tabs configured — run: oflow connect <integration>"
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
+        # Learned before this app existed (see cli._run) — None if the
+        # terminal couldn't be queried in time. Feeds export_screenshot.
+        self._palette = palette
 
     @property
     def active_tab(self) -> str | None:
@@ -127,7 +166,74 @@ class OflowApp(App[None]):
         self._shift_tab(-1)
 
     def action_help(self) -> None:
-        self.notify("tab/shift+tab switch tabs · r refresh · o open · q quit")
+        # "?" is itself a priority binding, so it is checked ahead of the modal
+        # screen's own bindings even while the overlay is open — that is what
+        # makes pressing it again a cheap toggle rather than a no-op. The
+        # footer already shows the shell keys, so the overlay carries only the
+        # active tab's integration section.
+        if isinstance(self.screen, HelpOverlay):
+            self.pop_screen()
+            return
+        self.push_screen(HelpOverlay(self._help_tab_section(), self.empty_hint))
+
+    def _help_tab_section(self) -> Section | None:
+        active = self.active_tab
+        if active is None:
+            return None
+        panel = self._panel_of(active)
+        binding_rows = _rows_from_bindings(self, type(panel).BINDINGS if panel is not None else ())
+        try:
+            action_rows = _rows_from_actions(self, get_integration(active).manifest.actions)
+        except UnknownIntegration:
+            # _panel_for already put this tab in its own error state; there is
+            # no manifest to draw actions from.
+            action_rows = []
+        # A manifest action's label wins over a same-keyed panel binding (e.g.
+        # both declaring "o") since it is the user-facing name for that action.
+        action_keys = {key for key, _ in action_rows}
+        rows = [row for row in binding_rows if row[0] not in action_keys] + action_rows
+        return (active, rows)
+
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        # Filtered by callback identity, not title, so a future Textual title
+        # rename can't silently stop these from being dropped. "Keys" has two
+        # possible callbacks depending on whether its panel is already open.
+        dropped = {
+            self.action_change_theme,
+            self.action_hide_help_panel,
+            self.action_show_help_panel,
+            screen.action_maximize,
+            screen.action_minimize,
+        }
+        for command in super().get_system_commands(screen):
+            if command.callback not in dropped:
+                yield command
+
+    def _screenshot_theme(self) -> TerminalTheme | None:
+        # None preserves today's fallback: Console.export_svg's own default.
+        return None if self._palette is None else self._palette.to_terminal_theme()
+
+    def export_screenshot(self, *, title: str | None = None, simplify: bool = False) -> str:
+        # Near-verbatim copy of App.export_screenshot (Textual 8.2.8) plus a
+        # `theme=` argument — no hook exists to add just that. Recheck on upgrade.
+        assert self._driver is not None, "App must be running"
+        width, height = self.size
+
+        console = Console(
+            width=width,
+            height=height,
+            file=io.StringIO(),
+            force_terminal=True,
+            color_system="truecolor",
+            record=True,
+            legacy_windows=False,
+            safe_box=False,
+        )
+        screen_render = self.screen._compositor.render_update(
+            full=True, screen_stack=self._background_screens, simplify=simplify
+        )
+        console.print(screen_render)
+        return console.export_svg(title=title or self.title, theme=self._screenshot_theme())
 
     def action_refresh(self) -> None:
         if not self.active_tab:
@@ -135,31 +241,6 @@ class OflowApp(App[None]):
         panel = self._panel_of(self.active_tab)
         if panel is not None:
             self.refresh_tab(self.active_tab, panel, force=True)
-
-    def action_open(self) -> None:
-        integration_id = self.active_tab or ""
-        panel = self._panel_of(integration_id)
-        if panel is None:
-            return
-        url = getattr(panel, "selected_url", lambda: None)()
-        if not url:
-            return
-        webbrowser.open(url)
-
-        item = next((entry for entry in panel.items if entry.url == url), None)
-        if item is None:
-            return
-        self.seen.mark_seen(integration_id, item)
-        try:
-            self.seen.save()
-        except (ConfigError, OSError) as error:
-            # A save failure here is cosmetic — the mark above already cleared
-            # in memory — so the dashboard must keep running rather than crash:
-            # ConfigError covers a permissions refusal, OSError covers the disk
-            # itself (full, read-only, revoked access), which is what
-            # write_private_file/ensure_config_dir actually raise on failure.
-            self.notify(str(error), severity="error")
-        panel.refresh()
 
     @work(thread=True)
     def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:

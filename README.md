@@ -13,8 +13,9 @@ Not published to PyPI yet. From a checkout:
 Once released, `uvx oflow` will fetch and run it directly. That first run
 installs the package before the screen paints, so expect a brief blank terminal.
 
-Inside the dashboard: `tab`/`shift+tab` switch tabs, `up`/`down` select an
-item, `o` opens it in your browser, `r` refreshes, `q` quits.
+Inside the dashboard: `shift+←`/`shift+→` switch tabs, `up`/`down` select an
+item, `o` opens it in your browser, `r` refreshes, `?` shows the current tab's
+keys, `q` quits.
 
 ## Status
 

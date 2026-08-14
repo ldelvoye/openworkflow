@@ -25,6 +25,7 @@ from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_conf
 from oflow.contract import Integration
 from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
 from oflow.shell.app import OflowApp
+from oflow.shell.terminal_palette import query_terminal_palette
 from oflow.text import printable
 
 LOGIN_TIMEOUT_SECONDS = 300
@@ -281,7 +282,11 @@ def _logout(integration_id: str) -> int:
 
 def _run() -> int:
     tabs = tuple(tab.integration for tab in load_config().tabs)
-    OflowApp(tabs=tabs).run()
+    # Must happen before OflowApp exists: once Textual's driver is running it
+    # owns stdin, and it has no notion of an OSC color-query response (see
+    # query_terminal_palette's docstring) — this is the only safe window.
+    palette = query_terminal_palette()
+    OflowApp(tabs=tabs, palette=palette).run()
     return 0
 
 
