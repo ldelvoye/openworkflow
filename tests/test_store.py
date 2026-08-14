@@ -2,10 +2,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from keyring.errors import KeyringError
 
 from oflow.auth.store import (
     CredentialPermissionError,
     Credentials,
+    CredentialStoreError,
     InsecureBackendError,
     MalformedCredentialsError,
     delete_credentials,
@@ -29,16 +31,12 @@ def file_store(tmp_path, monkeypatch):
 
 
 def test_repr_redacts_both_tokens():
-    rendered = repr(CREDS)
-    assert "secret-access-token" not in rendered
-    assert "secret-refresh-token" not in rendered
-    assert "redacted" in rendered
-
-
-def test_str_redacts_both_tokens():
-    rendered = str(CREDS)
-    assert "secret-access-token" not in rendered
-    assert "secret-refresh-token" not in rendered
+    # str must stay aliased to repr — this also catches someone adding a
+    # leaking __str__.
+    for rendered in (repr(CREDS), str(CREDS)):
+        assert "secret-access-token" not in rendered
+        assert "secret-refresh-token" not in rendered
+        assert "redacted" in rendered
 
 
 def test_is_expired():
@@ -160,3 +158,41 @@ def test_keyring_store_rejects_insecure_backend(tmp_path, monkeypatch):
     with pytest.raises(InsecureBackendError) as excinfo:
         set_credentials("linear", CREDS)
     assert "OFLOW_CREDENTIAL_STORE=file" in str(excinfo.value)
+
+
+def _fake_secure_backend() -> object:
+    """An object that passes the secure-backend check without touching a real
+    keychain, so a get/set/delete call actually reaches the fake below it."""
+
+    class FakeSecureBackend:
+        pass
+
+    FakeSecureBackend.__module__ = "keyring.backends.macOS"
+    FakeSecureBackend.__qualname__ = "Keyring"
+    return FakeSecureBackend()
+
+
+def test_keyring_backend_error_on_get_raises_credential_store_error(tmp_path, monkeypatch):
+    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("OFLOW_CREDENTIAL_STORE", raising=False)
+    monkeypatch.setattr("oflow.auth.store.keyring.get_keyring", lambda: _fake_secure_backend())
+
+    def raise_keyring_error(service, integration_id):
+        raise KeyringError("the keychain is locked")
+
+    monkeypatch.setattr("oflow.auth.store.keyring.get_password", raise_keyring_error)
+
+    with pytest.raises(CredentialStoreError):
+        get_credentials("linear")
+
+
+def test_file_store_read_oserror_raises_credential_store_error(file_store, monkeypatch):
+    set_credentials("linear", CREDS)
+
+    def raise_oserror(self):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("oflow.auth.store.Path.read_text", raise_oserror)
+
+    with pytest.raises(CredentialStoreError):
+        get_credentials("linear")

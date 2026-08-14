@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oflow.contract import Integration
+from oflow.core.contract import Integration
 
 
 class UnknownIntegration(Exception):

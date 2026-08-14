@@ -7,7 +7,7 @@ rather than half-working.
 
 from __future__ import annotations
 
-from oflow.contract import Integration
+from oflow.core.contract import Integration
 from oflow.integrations import linear
 
 INTEGRATIONS: tuple[Integration, ...] = (linear.INTEGRATION,)

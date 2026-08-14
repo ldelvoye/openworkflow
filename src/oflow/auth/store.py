@@ -1,10 +1,8 @@
 """The only module that reads or writes credentials.
 
 Defaults to the OS keychain. An insecure keyring backend is refused rather than
-used: keyring resolves to a failing backend and raises when nothing secure is
-available, but an unrelated ``keyrings.alt`` install in the same environment
-gives it an insecure backend to pick instead, turning that loud failure into a
-plaintext token on disk.
+used — an unrelated ``keyrings.alt`` install can make what should be a loud
+"no secure backend" failure silently pick a plaintext one instead.
 
 The opt-in fallback store is not a substitute for a keychain: it is plaintext
 JSON, protected only by mode 0600 inside a 0700 directory. Both are enforced on
@@ -20,9 +18,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import keyring
-from keyring.errors import PasswordDeleteError
+from keyring.errors import KeyringError, PasswordDeleteError
 
-from oflow.config import (
+from oflow.core.config import (
     FILE_MODE,
     ConfigPermissionError,
     config_dir,
@@ -106,10 +104,8 @@ def now() -> datetime:
 def _to_dict(credentials: Credentials) -> StoredCredential:
     """Serialise for storage.
 
-    The returned dict holds raw tokens and, unlike Credentials, has no redacting
-    repr — so it must never leave this module. Enforced by
-    tests/test_store.py::test_serialised_credentials_never_leave_the_store_module,
-    which fails if any other module so much as names this function.
+    Holds raw tokens with no redacting repr, unlike Credentials — must never
+    leave this module. A test enforces that.
     """
     return {
         "access_token": credentials.access_token,
@@ -163,8 +159,15 @@ class _FileStore:
         if not path.exists() and not path.is_symlink():
             return {}
         _translate_permission_error(lambda: require_private_path(path, FILE_MODE))
+        # Callers branch on CredentialStoreError to decide whether to keep going;
+        # a bare OSError (unreadable file, revoked permissions mid-session) must
+        # degrade the same way a permission refusal does, not crash the caller.
         try:
-            return json.loads(path.read_text())
+            text = path.read_text()
+        except OSError as error:
+            raise CredentialStoreError(str(error)) from error
+        try:
+            return json.loads(text)
         except ValueError as error:
             raise MalformedCredentialsError(f"{path} is not valid JSON") from error
 
@@ -172,14 +175,25 @@ class _FileStore:
         _translate_permission_error(ensure_config_dir)
         # Atomic replace matters more here than for config: this file holds the
         # refresh token, so a truncated write costs a login.
-        write_private_file(self._path(), json.dumps(payload))
+        try:
+            write_private_file(self._path(), json.dumps(payload))
+        except OSError as error:
+            raise CredentialStoreError(str(error)) from error
 
 
 class _KeyringStore:
-    """The OS keychain, entered under one account per integration."""
+    """The OS keychain, entered under one account per integration.
+
+    keyring.errors.KeyringError is not a CredentialStoreError, so every call
+    into keyring is translated here — otherwise a locked keychain or a denied
+    prompt crashes the caller instead of degrading like any other store failure.
+    """
 
     def get(self, integration_id: str) -> Credentials | None:
-        stored = keyring.get_password(SERVICE, integration_id)
+        try:
+            stored = keyring.get_password(SERVICE, integration_id)
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
         if stored is None:
             return None
         try:
@@ -191,13 +205,18 @@ class _KeyringStore:
         return _from_dict(decoded)
 
     def set(self, integration_id: str, credentials: Credentials) -> None:
-        keyring.set_password(SERVICE, integration_id, json.dumps(_to_dict(credentials)))
+        try:
+            keyring.set_password(SERVICE, integration_id, json.dumps(_to_dict(credentials)))
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
 
     def delete(self, integration_id: str) -> None:
         try:
             keyring.delete_password(SERVICE, integration_id)
         except PasswordDeleteError:
             pass
+        except KeyringError as error:
+            raise CredentialStoreError(str(error)) from error
 
 
 def _translate_permission_error(check) -> None:

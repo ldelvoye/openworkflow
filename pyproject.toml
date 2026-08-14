@@ -8,6 +8,7 @@ license = { text = "MIT" }
 dependencies = [
     "httpx>=0.28",
     "keyring>=25.0",
+    "textual>=1.0",
     "tomli-w>=1.0",
 ]
 
@@ -15,7 +16,7 @@ dependencies = [
 oflow = "oflow.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8.0", "ruff>=0.9", "pyright>=1.1"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.9", "pyright>=1.1"]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.13"]
@@ -31,6 +32,7 @@ default = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 # Pyright reads this directly, so import resolution does not depend on the
 # editor's Python extension discovering an interpreter.

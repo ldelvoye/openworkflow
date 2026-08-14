@@ -1,10 +1,9 @@
 """Linear's declaration.
 
-Auth only for now: the source and panel arrive with the dashboard. Data comes
-over the MCP endpoint rather than GraphQL because the workspace this targets
-issues no personal API keys, and the MCP server offers dynamic client
-registration — the token it returns is audience-bound to that endpoint, so
-GraphQL is not a fallback.
+Data comes over the MCP endpoint rather than GraphQL because the workspace
+this targets issues no personal API keys, and the MCP server offers dynamic
+client registration — the token it returns is audience-bound to that
+endpoint, so GraphQL is not a fallback.
 """
 
 from __future__ import annotations
@@ -12,8 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
+import httpx
+
 from oflow.auth.oauth import ProviderConfig
-from oflow.contract import Action, ActionClass, Manifest
+from oflow.auth.store import Credentials
+from oflow.core.contract import Action, ActionClass, Manifest
+from oflow.integrations.linear.panel import LinearPanel
+from oflow.integrations.linear.source import Issue, fetch
 
 PROVIDER = ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
@@ -35,6 +39,10 @@ MANIFEST = Manifest(
 @dataclass(frozen=True)
 class LinearIntegration:
     manifest: Manifest = MANIFEST
+    panel_class: type[LinearPanel] = LinearPanel
+
+    def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
+        return fetch(credentials, http)
 
 
 INTEGRATION = LinearIntegration()

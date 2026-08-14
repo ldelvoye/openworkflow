@@ -21,21 +21,14 @@ from oflow.auth.store import (
     now,
     set_credentials,
 )
-from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
-from oflow.contract import Integration
-from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
+from oflow.core.contract import Integration
+from oflow.core.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.core.text import printable
+from oflow.shell.app import OflowApp
+from oflow.shell.terminal_palette import query_terminal_palette
 
 LOGIN_TIMEOUT_SECONDS = 300
-
-
-def _printable(value: str, limit: int = 120) -> str:
-    """Strip control characters from a string that reached us over the network.
-
-    Callback values are attacker-influenceable and land in a terminal, where
-    escape sequences would be interpreted rather than shown.
-    """
-    cleaned = "".join(character for character in value if character.isprintable())
-    return cleaned[:limit] or "(unspecified)"
 
 
 def _callback_handler(
@@ -119,7 +112,7 @@ def run_login(
 
         # One deadline for the whole wait rather than per request, so a drip of
         # stray requests cannot extend it indefinitely.
-        server.timeout = 1.0
+        server.timeout = 1.0  # seconds
         deadline = time.monotonic() + timeout
         while not received and time.monotonic() < deadline:
             server.handle_request()
@@ -127,7 +120,7 @@ def run_login(
         if not received:
             raise oauth.OAuthError("timed out waiting for the browser callback")
         if "error" in received:
-            raise oauth.OAuthError(f"authorization was refused: {_printable(received['error'])}")
+            raise oauth.OAuthError(f"authorization was refused: {printable(received['error'])}")
 
         credentials = oauth.exchange_code(
             client, metadata, client_id, received["code"], verifier, redirect_uri
@@ -180,7 +173,9 @@ def _warn_on_extra_scopes(integration: Integration, credentials: Credentials) ->
     cost of an over-scoped token is that it is a bigger prize if stolen, which
     is worth knowing before deciding to keep it — hence before the success line.
     """
-    extra = sorted(set(credentials.scope.split()) - set(integration.manifest.provider.scopes))
+    extra = sorted(
+        set[str](credentials.scope.split()) - set[str](integration.manifest.provider.scopes)
+    )
     if not extra:
         return
     print(
@@ -287,6 +282,16 @@ def _logout(integration_id: str) -> int:
     return 0
 
 
+def _run() -> int:
+    tabs = tuple(tab.integration for tab in load_config().tabs)
+    # Must happen before OflowApp exists: once Textual's driver is running it
+    # owns stdin, and it has no notion of an OSC color-query response (see
+    # query_terminal_palette's docstring) — this is the only safe window.
+    palette = query_terminal_palette()
+    OflowApp(tabs=tabs, palette=palette).run()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="oflow")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -299,12 +304,16 @@ def main(argv: list[str] | None = None) -> int:
     logout = subparsers.add_parser("logout", help="revoke and delete stored credentials")
     logout.add_argument("integration")
 
+    subparsers.add_parser("run", help="open the dashboard")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "connect":
             return _connect(args.integration)
         if args.command == "status":
             return _status()
+        if args.command == "run":
+            return _run()
         return _logout(args.integration)
     except ConfigError as error:
         # The config file is documented as hand-editable, so a broken one is a
