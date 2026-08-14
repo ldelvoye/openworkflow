@@ -22,8 +22,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from oflow.contract import AuthExpired, Malformed, Unavailable
-from oflow.text import printable
+from oflow.core.contract import AuthExpired, Malformed, Unavailable
+from oflow.core.text import printable
 
 # What we ask for. Deliberately a version we have verified rather than the newest
 # published one: a server that does not recognise the requested version may reject
@@ -33,12 +33,12 @@ MCP_PROTOCOL_VERSION = "2025-11-25"
 # Revisions this client's request shape actually works against. Anything
 # outside this range needs different code, not just a different string —
 # earlier versions lack Streamable HTTP; later ones drop the handshake entirely.
-SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-03-26", "2025-06-18", "2025-11-25"})
+SUPPORTED_PROTOCOL_VERSIONS = frozenset[str]({"2025-03-26", "2025-06-18", "2025-11-25"})
 
 # Addresses only. "localhost" is a name, so whether it stays on this machine
 # depends on resolution — the one thing the exemption below assumes it never has
 # to trust.
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
+LOOPBACK_HOSTS = frozenset[str]({"127.0.0.1", "::1"})
 
 
 class McpClient:
@@ -145,10 +145,12 @@ def _envelope_of(response: httpx.Response) -> dict[str, Any]:
     body = response.text
     # A single-message SSE frame: one `data:` line carrying the JSON-RPC body.
     if "text/event-stream" in response.headers.get("content-type", ""):
-        data_lines = (
-            line[len("data:") :].strip() for line in body.splitlines() if line.startswith("data:")
-        )
-        body = next(data_lines, "")
+        data = ""
+        for line in body.splitlines():
+            if line.startswith("data:"):
+                data = line[len("data:") :].strip()
+                break
+        body = data
     try:
         envelope = json.loads(body)
     except ValueError as error:
@@ -161,7 +163,10 @@ def _envelope_of(response: httpx.Response) -> dict[str, Any]:
 def _payload_of(envelope: dict[str, Any], tool: str) -> dict[str, Any]:
     error = envelope.get("error")
     if error is not None:
-        detail = error.get("message", "unknown error") if isinstance(error, dict) else error
+        if isinstance(error, dict):
+            detail = error.get("message", "unknown error")
+        else:
+            detail = error
         raise Malformed(f"{tool} failed: {printable(str(detail))}")
 
     result = envelope.get("result")

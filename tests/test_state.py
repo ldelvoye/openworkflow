@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from oflow.contract import Item
-from oflow.state import SeenState, state_path
+from oflow.core.contract import Item
+from oflow.core.state import SeenState, state_path
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 

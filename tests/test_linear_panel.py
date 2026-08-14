@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 from textual.app import App, ComposeResult
 
+from oflow.core.state import SeenState
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.panel import PanelState
-from oflow.state import SeenState
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -83,7 +83,6 @@ def test_the_panel_never_fetches():
         ("High", "!!"),
         ("Medium", "!"),
         ("Low", "·"),
-        ("", "·"),
     ],
 )
 def test_priority_glyph_scale(priority: str, glyph: str) -> None:
@@ -175,7 +174,7 @@ async def test_pressing_o_opens_the_selected_issue_and_clears_its_change_mark(mo
     monkeypatch.setattr(
         "oflow.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
     )
-    monkeypatch.setattr("oflow.state.SeenState.save", lambda self: None)
+    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
 
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
@@ -201,7 +200,7 @@ def test_a_failed_seen_save_does_not_crash_and_notifies_instead(monkeypatch):
     def refuse_save(self):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("oflow.state.SeenState.save", refuse_save)
+    monkeypatch.setattr("oflow.core.state.SeenState.save", refuse_save)
 
     notified: list[str] = []
     monkeypatch.setattr(

@@ -13,7 +13,7 @@ from enum import StrEnum
 from textual.app import RenderResult
 from textual.widgets import Static
 
-from oflow.contract import Item
+from oflow.core.contract import Item
 
 
 class PanelState(StrEnum):

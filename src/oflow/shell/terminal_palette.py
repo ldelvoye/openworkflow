@@ -79,7 +79,7 @@ def parse_palette(data: str) -> TerminalPalette | None:
     if "background" not in colors or "foreground" not in colors:
         return None
     try:
-        ansi = tuple(colors[str(index)] for index in range(16))
+        ansi = tuple[RGB, ...](colors[str(index)] for index in range(16))
     except KeyError:
         return None
     return TerminalPalette(

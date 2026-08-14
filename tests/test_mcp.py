@@ -3,8 +3,8 @@ import json
 import httpx
 import pytest
 
-from oflow.contract import AuthExpired, Malformed, Unavailable
-from oflow.mcp import MCP_PROTOCOL_VERSION, McpClient
+from oflow.core.contract import AuthExpired, Malformed, Unavailable
+from oflow.core.mcp import MCP_PROTOCOL_VERSION, McpClient
 
 ENDPOINT = "https://example.invalid/mcp"
 

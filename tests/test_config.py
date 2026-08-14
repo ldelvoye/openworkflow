@@ -1,6 +1,6 @@
 import pytest
 
-from oflow.config import (
+from oflow.core.config import (
     Config,
     ConfigPermissionError,
     MalformedConfigError,

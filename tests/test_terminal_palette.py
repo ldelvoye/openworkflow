@@ -72,13 +72,10 @@ def test_returns_none_for_a_response_missing_an_ansi_slot():
     assert parse_palette(incomplete) is None
 
 
-def test_returns_none_for_silence():
+def test_returns_none_for_silence_or_garbage():
+    # A terminal with no OSC support at all might send nothing back, or echo
+    # stray bytes — none of it should parse as a palette.
     assert parse_palette("") is None
-
-
-def test_returns_none_for_a_terminal_that_ignores_the_query_and_echoes_garbage():
-    # A terminal with no OSC support at all might just echo stray bytes back,
-    # or send nothing recognizable — none of it should parse as a palette.
     assert parse_palette("not an escape sequence at all") is None
 
 

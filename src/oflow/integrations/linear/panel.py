@@ -13,10 +13,10 @@ from rich.text import Text
 from textual.app import RenderResult
 from textual.binding import Binding
 
-from oflow.config import ConfigError
+from oflow.core.config import ConfigError
+from oflow.core.state import SeenState
 from oflow.integrations.linear.source import Issue
 from oflow.shell.panel import Panel, PanelState
-from oflow.state import SeenState
 
 CHANGED_MARK = "●"
 # A standard ANSI color name (not a hex/truecolor value or a Textual $variable),

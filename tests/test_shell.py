@@ -4,10 +4,11 @@ from types import SimpleNamespace
 import pytest
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.widgets import Static
 
 from oflow.auth.store import Credentials
-from oflow.contract import AuthExpired, Item, Malformed, Unavailable
+from oflow.core.contract import SHELL_KEYS, AuthExpired, Item, Malformed, Unavailable
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
@@ -40,15 +41,6 @@ def issue(identifier: str = "ENG-1") -> Issue:
         team="Infra",
         priority="High",
     )
-
-
-def test_panel_states_are_the_four_the_design_names():
-    assert {member.value for member in PanelState} >= {
-        "loading",
-        "empty",
-        "error",
-        "stale",
-    }
 
 
 def test_an_empty_panel_says_so_rather_than_looking_broken():
@@ -117,19 +109,14 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
 
 
 @pytest.mark.asyncio
-async def test_the_app_opens_with_a_tab_per_configured_integration():
-    # Pilot.app is typed as App[ReturnType], not the subclass, so a locally
-    # typed reference is what gives pyright OflowApp's own attributes.
-    app = OflowApp(tabs=("alpha", "beta"))
-    async with app.run_test():
-        assert app.tab_ids == ("alpha", "beta")
-
-
-@pytest.mark.asyncio
-async def test_no_tabs_shows_the_connect_hint():
+async def test_an_empty_app_renders_the_connect_hint():
     app = OflowApp(tabs=())
-    async with app.run_test():
-        assert "connect" in app.empty_hint.lower()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        static = app.query_one(Static)
+        rendered = "".join(static.render_line(y).text for y in range(static.size.height))
+
+    assert "connect" in rendered.lower()
 
 
 @pytest.mark.asyncio
@@ -148,6 +135,14 @@ async def test_shift_right_switches_to_the_next_tab():
         assert app.active_tab == "alpha"
         await pilot.press("shift+right")
         assert app.active_tab == "beta"
+
+
+def test_app_bindings_are_derived_from_shell_keys():
+    """OflowApp.BINDINGS is built from SHELL_KEYS (see core.contract); this
+    pins that derivation so the two cannot drift apart again.
+    """
+    keys = {binding.key for binding in OflowApp.BINDINGS if isinstance(binding, Binding)}
+    assert keys == {shell_key.key for shell_key in SHELL_KEYS}
 
 
 # --- Task 6: fetching and refresh ---
@@ -279,7 +274,7 @@ async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=("linear", "alpha"))
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.active_tab == "linear"

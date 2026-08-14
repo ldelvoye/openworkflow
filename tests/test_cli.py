@@ -9,8 +9,8 @@ from oflow.auth.store import (
     set_credentials,
 )
 from oflow.cli import main
-from oflow.config import Config, TabConfig, load_config, save_config
-from oflow.registry import known_integration_ids
+from oflow.core.config import Config, TabConfig, load_config, save_config
+from oflow.core.registry import known_integration_ids
 
 LIVE = Credentials(
     access_token="at-secret",

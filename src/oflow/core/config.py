@@ -15,9 +15,6 @@ from pathlib import Path
 import tomli_w
 
 CONFIG_DIR_ENV = "OFLOW_CONFIG_DIR"
-
-# The modes every path under the config directory must have. Kept together so
-# the "owner-only" guarantee can't drift between two separate definitions.
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 
@@ -150,7 +147,7 @@ def save_config(config: Config) -> None:
 
 def add_tab(config: Config, tab: TabConfig) -> Config:
     """Replace this integration's entry if present, else append it, keeping order."""
-    for index, existing in enumerate(config.tabs):
+    for index, existing in enumerate[TabConfig](config.tabs):
         if existing.integration == tab.integration:
             return Config(tabs=config.tabs[:index] + (tab,) + config.tabs[index + 1 :])
     return Config(tabs=config.tabs + (tab,))

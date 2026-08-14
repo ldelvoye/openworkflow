@@ -31,16 +31,12 @@ def file_store(tmp_path, monkeypatch):
 
 
 def test_repr_redacts_both_tokens():
-    rendered = repr(CREDS)
-    assert "secret-access-token" not in rendered
-    assert "secret-refresh-token" not in rendered
-    assert "redacted" in rendered
-
-
-def test_str_redacts_both_tokens():
-    rendered = str(CREDS)
-    assert "secret-access-token" not in rendered
-    assert "secret-refresh-token" not in rendered
+    # str must stay aliased to repr — this also catches someone adding a
+    # leaking __str__.
+    for rendered in (repr(CREDS), str(CREDS)):
+        assert "secret-access-token" not in rendered
+        assert "secret-refresh-token" not in rendered
+        assert "redacted" in rendered
 
 
 def test_is_expired():

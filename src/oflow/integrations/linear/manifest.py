@@ -15,7 +15,7 @@ import httpx
 
 from oflow.auth.oauth import ProviderConfig
 from oflow.auth.store import Credentials
-from oflow.contract import Action, ActionClass, Manifest
+from oflow.core.contract import Action, ActionClass, Manifest
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue, fetch
 

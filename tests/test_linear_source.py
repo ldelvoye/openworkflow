@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from oflow.auth.store import Credentials
-from oflow.contract import Malformed
+from oflow.core.contract import Malformed
 from oflow.integrations.linear.source import FIELDS, Issue, fetch
 
 PAGES = json.loads((Path(__file__).parent / "fixtures" / "linear_issues.json").read_text())

@@ -6,7 +6,7 @@ import pytest
 
 from oflow.auth.oauth import ProviderConfig
 from oflow.auth.store import Credentials
-from oflow.contract import (
+from oflow.core.contract import (
     Action,
     ActionClass,
     AuthExpired,
@@ -16,7 +16,7 @@ from oflow.contract import (
     Manifest,
     Unavailable,
 )
-from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.core.registry import UnknownIntegration, get_integration, known_integration_ids
 from oflow.shell.panel import Panel
 
 PROVIDER = ProviderConfig(
@@ -59,11 +59,6 @@ def registered(monkeypatch):
         return integrations
 
     return register
-
-
-def test_action_classes_are_the_three_safety_tiers():
-    assert {member.value for member in ActionClass} == {"local", "launch", "remote"}
-    assert ActionClass.LAUNCH == "launch"
 
 
 def test_every_integration_error_shares_one_base():

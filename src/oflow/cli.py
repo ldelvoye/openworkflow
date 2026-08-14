@@ -21,12 +21,12 @@ from oflow.auth.store import (
     now,
     set_credentials,
 )
-from oflow.config import ConfigError, TabConfig, add_tab, load_config, save_config
-from oflow.contract import Integration
-from oflow.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
+from oflow.core.contract import Integration
+from oflow.core.registry import UnknownIntegration, get_integration, known_integration_ids
+from oflow.core.text import printable
 from oflow.shell.app import OflowApp
 from oflow.shell.terminal_palette import query_terminal_palette
-from oflow.text import printable
 
 LOGIN_TIMEOUT_SECONDS = 300
 
@@ -112,7 +112,7 @@ def run_login(
 
         # One deadline for the whole wait rather than per request, so a drip of
         # stray requests cannot extend it indefinitely.
-        server.timeout = 1.0
+        server.timeout = 1.0  # seconds
         deadline = time.monotonic() + timeout
         while not received and time.monotonic() < deadline:
             server.handle_request()
@@ -173,7 +173,9 @@ def _warn_on_extra_scopes(integration: Integration, credentials: Credentials) ->
     cost of an over-scoped token is that it is a bigger prize if stolen, which
     is worth knowing before deciding to keep it — hence before the success line.
     """
-    extra = sorted(set(credentials.scope.split()) - set(integration.manifest.provider.scopes))
+    extra = sorted(
+        set[str](credentials.scope.split()) - set[str](integration.manifest.provider.scopes)
+    )
     if not extra:
         return
     print(

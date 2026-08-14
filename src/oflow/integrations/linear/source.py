@@ -12,9 +12,9 @@ from typing import Any
 import httpx
 
 from oflow.auth.store import Credentials
-from oflow.contract import Item, Malformed
-from oflow.mcp import McpClient
-from oflow.text import printable
+from oflow.core.contract import Item, Malformed
+from oflow.core.mcp import McpClient
+from oflow.core.text import printable
 
 ENDPOINT = "https://mcp.linear.app/mcp"
 

@@ -20,7 +20,7 @@ from pathlib import Path
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
-from oflow.config import (
+from oflow.core.config import (
     FILE_MODE,
     ConfigPermissionError,
     config_dir,
