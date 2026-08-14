@@ -11,6 +11,7 @@ What's ahead, as feature sets per release. Design history lives in git;
   with a clock-skew margin; no more daily reconnects
 - Mark-all-seen key
 - Unify the panel's plain/styled render paths (with the detail-pane rework)
+- Make the help menu formatting consistent (capitalization)
 - Cache the MCP handshake per source instance instead of per refresh
 
 ## v1.0.1 — contracts and contributor docs
@@ -29,6 +30,11 @@ What's ahead, as feature sets per release. Design history lives in git;
 - Palette "remove integration": search installed integrations, show the
   connection type, confirm, then clean up every piece of persistent state
 - Revisit the palette's name once it becomes the management surface
+
+## v1.1.1 - bottom banner tweaks
+
+- Change the switch tab reserved keybinds
+- Add visual feedback to the refresh keybind
 
 ## v1.2.0 — setup and open-source release
 
