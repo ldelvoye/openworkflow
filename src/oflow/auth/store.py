@@ -1,10 +1,8 @@
 """The only module that reads or writes credentials.
 
 Defaults to the OS keychain. An insecure keyring backend is refused rather than
-used: keyring resolves to a failing backend and raises when nothing secure is
-available, but an unrelated ``keyrings.alt`` install in the same environment
-gives it an insecure backend to pick instead, turning that loud failure into a
-plaintext token on disk.
+used — an unrelated ``keyrings.alt`` install can make what should be a loud
+"no secure backend" failure silently pick a plaintext one instead.
 
 The opt-in fallback store is not a substitute for a keychain: it is plaintext
 JSON, protected only by mode 0600 inside a 0700 directory. Both are enforced on
@@ -106,10 +104,8 @@ def now() -> datetime:
 def _to_dict(credentials: Credentials) -> StoredCredential:
     """Serialise for storage.
 
-    The returned dict holds raw tokens and, unlike Credentials, has no redacting
-    repr — so it must never leave this module. Enforced by
-    tests/test_store.py::test_serialised_credentials_never_leave_the_store_module,
-    which fails if any other module so much as names this function.
+    Holds raw tokens with no redacting repr, unlike Credentials — must never
+    leave this module. A test enforces that.
     """
     return {
         "access_token": credentials.access_token,
@@ -188,11 +184,9 @@ class _FileStore:
 class _KeyringStore:
     """The OS keychain, entered under one account per integration.
 
-    keyring.errors.KeyringError is not a CredentialStoreError — it is the
-    backend's own hierarchy. Callers branch on CredentialStoreError to decide
-    whether to keep going, so every call into keyring is translated here: a
-    locked keychain or a denied prompt must degrade like any other store
-    failure, not crash whoever called us.
+    keyring.errors.KeyringError is not a CredentialStoreError, so every call
+    into keyring is translated here — otherwise a locked keychain or a denied
+    prompt crashes the caller instead of degrading like any other store failure.
     """
 
     def get(self, integration_id: str) -> Credentials | None:

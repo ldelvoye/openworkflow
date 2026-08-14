@@ -16,9 +16,8 @@ import tomli_w
 
 CONFIG_DIR_ENV = "OFLOW_CONFIG_DIR"
 
-# The modes every path under the config directory must have. They live together
-# because the guarantee is a single one — nothing here is readable by anyone but
-# its owner — and splitting them across modules invites the two to drift.
+# The modes every path under the config directory must have. Kept together so
+# the "owner-only" guarantee can't drift between two separate definitions.
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 
@@ -100,15 +99,11 @@ def ensure_config_dir() -> Path:
 
 
 def write_private_file(path: Path, data: str) -> None:
-    """Replace a file atomically, never widening it even briefly.
+    """Replace a file atomically, without ever widening the file's permissions.
 
-    Used for everything under the config directory so one idiom covers both the
-    non-secret config and the credentials file — a second, laxer idiom is how a
-    plaintext token ends up world-readable for the width of a rename.
-
-    O_EXCL refuses a pre-existing temp file or a symlink planted at that path.
-    The creation mode is masked by the umask, which can only narrow it — narrow
-    enough to fail our own read checks — so fchmod pins the exact bits.
+    This is the only write path for the config directory, credentials included:
+    a laxer write here can leave a token world-readable for the width of a
+    rename. O_EXCL and fchmod are what enforce that — don't relax either.
     """
     temporary = path.with_name(path.name + ".tmp")
     temporary.unlink(missing_ok=True)

@@ -40,10 +40,8 @@ __all__ = [
 ]
 
 # The port named at registration time, not the one the callback listens on.
-# RFC 8252 section 7.3 asks authorization servers to accept any port on a
-# loopback redirect regardless of what was registered, so the callback binds an
-# ephemeral port instead — leaving nothing for a local process to squat in
-# advance. A provider that ignores that guidance needs its own opt-out.
+# The callback binds an ephemeral port instead, so nothing can squat this one
+# in advance; a provider that insists on an exact match needs its own opt-out.
 REGISTRATION_PORT = 8765
 
 
@@ -93,10 +91,10 @@ def _json_object(response: httpx.Response, source: str) -> JsonObject:
 def _require_https(url: str, name: str) -> str:
     """Refuse a plaintext endpoint named by a metadata document.
 
-    The metadata itself arrives over verified TLS, but the endpoints inside it
-    are whatever the provider wrote. A contributed ProviderConfig pointing at a
-    server that advertises an http token endpoint would otherwise POST a refresh
-    token in the clear. The loopback redirect is exempt — it never passes here.
+    Endpoints inside the (TLS-verified) metadata are still whatever the
+    provider wrote — an http token endpoint would otherwise POST a refresh
+    token in the clear. The loopback redirect is exempt; it never reaches
+    this check.
     """
     if urlsplit(url).scheme != "https":
         raise OAuthError(f"the {name} endpoint is not https: {url}")
@@ -215,9 +213,8 @@ def _credentials_from_token_response(
 
 
 def _post_token(client: httpx.Client, metadata: ServerMetadata, form: dict[str, str]) -> JsonObject:
-    # The resource indicator (RFC 8707) binds the issued token to the protected
-    # resource; without it the token carries the wrong audience and is rejected
-    # later, at the API rather than here.
+    # Binds the issued token to the protected resource; omit it and the token
+    # carries the wrong audience — rejected later at the API, not here.
     if metadata.resource:
         form = form | {"resource": metadata.resource}
     try:
@@ -289,9 +286,8 @@ def revoke(
     """
     if metadata.revocation_endpoint is None:
         return False
-    # RFC 7009 accepts either token type. Revoking the refresh token is what
-    # matters, since it is the one that outlives the session; with no refresh
-    # token the access token is the only thing left worth invalidating.
+    # Revoking the refresh token is what matters — it outlives the session;
+    # with none, the access token is the only thing left worth invalidating.
     token = credentials.refresh_token or credentials.access_token
     try:
         response = client.post(

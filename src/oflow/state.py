@@ -37,8 +37,6 @@ class SeenState:
             return cls({})
         if not isinstance(raw, dict):
             return cls({})
-        # Validate shape: keep only entries where the value is a dict with
-        # string keys and values; drop anything malformed.
         seen = {}
         for integration_id, entries in raw.items():
             if isinstance(entries, dict):
@@ -58,10 +56,9 @@ class SeenState:
         try:
             return item.updated_at > datetime.fromisoformat(stamp)
         except (ValueError, TypeError):
-            # ValueError: stamp is not a valid ISO 8601 datetime.
-            # TypeError: item.updated_at is naive but the stored stamp is aware
-            # (or vice versa) — a mismatch between producer and stored state.
-            # Both degrade gracefully: mark as changed, never crash the dashboard.
+            # stamp may be an invalid ISO datetime, or its awareness may not
+            # match item.updated_at's — either way, degrade to "changed"
+            # rather than crash the dashboard.
             return True
 
     def mark_seen(self, integration_id: str, item: Item) -> None:

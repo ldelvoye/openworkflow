@@ -30,9 +30,9 @@ from oflow.text import printable
 # the request outright instead of negotiating down, so optimism breaks connections.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
-# Revisions this client's request shape actually works against. Streamable HTTP
-# arrived in 2025-03-26, and 2026-07-28 removed the handshake entirely, so
-# anything outside this range needs different code rather than a different string.
+# Revisions this client's request shape actually works against. Anything
+# outside this range needs different code, not just a different string —
+# earlier versions lack Streamable HTTP; later ones drop the handshake entirely.
 SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-03-26", "2025-06-18", "2025-11-25"})
 
 # Addresses only. "localhost" is a name, so whether it stays on this machine

@@ -1,10 +1,9 @@
 """Linear's declaration.
 
-Auth only for now: the source and panel arrive with the dashboard. Data comes
-over the MCP endpoint rather than GraphQL because the workspace this targets
-issues no personal API keys, and the MCP server offers dynamic client
-registration — the token it returns is audience-bound to that endpoint, so
-GraphQL is not a fallback.
+Data comes over the MCP endpoint rather than GraphQL because the workspace
+this targets issues no personal API keys, and the MCP server offers dynamic
+client registration — the token it returns is audience-bound to that
+endpoint, so GraphQL is not a fallback.
 """
 
 from __future__ import annotations
