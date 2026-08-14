@@ -19,4 +19,4 @@ keys, `q` quits.
 
 ## Status
 
-Pre-alpha. See `docs/superpowers/specs/` for the design.
+Pre-alpha. See `docs/ROADMAP.md` for what's ahead.
