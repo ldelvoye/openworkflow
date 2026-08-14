@@ -147,3 +147,85 @@ def test_pagination_stops_at_a_page_limit():
         return sse({"issues": [], "hasNextPage": True, "cursor": "forever"})
 
     assert fetch_with(handler) == ()
+
+
+def counting_handler(methods: list[str]) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        methods.append(body["method"])
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        page = json.loads(json.dumps(PAGES["page1"]))
+        page["hasNextPage"] = False
+        return sse(page)
+
+    return handler
+
+
+def test_the_second_fetch_skips_the_handshake():
+    methods: list[str] = []
+    handler = counting_handler(methods)
+    fetch_with(handler)
+    fetch_with(handler)
+
+    assert methods.count("initialize") == 1
+    assert methods.count("tools/call") == 2
+
+
+def test_a_failure_after_a_skipped_handshake_reinitializes_and_retries_once():
+    methods: list[str] = []
+    failures = {"remaining": 1}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        methods.append(body["method"])
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        # The 2nd tools/call ever is the warm fetch's first attempt: the cold
+        # fetch's own initialize also leaves methods.count("initialize") == 1
+        # by the time it makes *its* first tools/call, so that count can't
+        # tell the two apart — count tools/call attempts instead.
+        if failures["remaining"] and methods.count("tools/call") == 2:
+            failures["remaining"] -= 1
+            return httpx.Response(400, text="session required")
+        page = json.loads(json.dumps(PAGES["page1"]))
+        page["hasNextPage"] = False
+        return sse(page)
+
+    fetch_with(handler)  # cold: full handshake
+    issues = fetch_with(handler)  # warm: first call 400s, must recover
+
+    assert issues  # the retry succeeded
+    assert methods.count("initialize") == 2
+
+
+def test_a_failure_after_a_real_handshake_is_not_retried():
+    calls = {"tools": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if json.loads(request.content)["method"] != "tools/call":
+            return httpx.Response(202)
+        calls["tools"] += 1
+        return httpx.Response(500, text="down")
+
+    from oflow.core.contract import Unavailable
+
+    with pytest.raises(Unavailable):
+        fetch_with(handler)
+    assert calls["tools"] == 1
+
+
+def test_an_expired_token_is_never_retried_with_a_new_handshake():
+    methods: list[str] = []
+    handler_ok = counting_handler(methods)
+    fetch_with(handler_ok)  # warm the cache
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        methods.append(json.loads(request.content)["method"])
+        return httpx.Response(401, json={"error": "invalid_token"})
+
+    from oflow.core.contract import AuthExpired
+
+    with pytest.raises(AuthExpired):
+        fetch_with(handler)
+    assert methods.count("initialize") == 1  # only the warm-up's

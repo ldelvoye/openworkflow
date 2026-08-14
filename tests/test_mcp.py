@@ -244,3 +244,51 @@ def test_errors_never_contain_the_token():
     with pytest.raises(Unavailable) as excinfo:
         client_for(handler).call_tool("list_issues", {})
     assert "token-abc" not in str(excinfo.value)
+
+
+def test_a_client_given_a_version_sends_it_without_initializing():
+    versions = []
+
+    def handler(request):
+        versions.append(request.headers.get("mcp-protocol-version"))
+        return tool_payload({"issues": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    client = McpClient(ENDPOINT, "token-abc", http, version="2025-06-18")
+    client.call_tool("list_issues", {})
+
+    assert versions == ["2025-06-18"]
+
+
+def test_the_version_property_reflects_what_initialize_negotiated():
+    def handler(request):
+        if json.loads(request.content)["method"] == "initialize":
+            return sse({"result": {"protocolVersion": "2025-06-18"}})
+        return httpx.Response(202)
+
+    client = client_for(handler)
+    assert client.version == MCP_PROTOCOL_VERSION
+    client.initialize()
+    assert client.version == "2025-06-18"
+
+
+def test_explicit_version_is_replaced_by_initialize():
+    """Regression: explicit version + initialize should update to negotiated version."""
+    versions = []
+
+    def handler(request):
+        versions.append(request.headers.get("mcp-protocol-version"))
+        method = json.loads(request.content)["method"]
+        if method == "initialize":
+            return sse({"result": {"protocolVersion": "2025-06-18"}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return tool_payload({"issues": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    client = McpClient(ENDPOINT, "token-abc", http, version="2025-03-26")
+    assert client.version == "2025-03-26"
+    client.initialize()
+    assert client.version == "2025-06-18"
+    client.call_tool("list_issues", {})
+    assert versions[-1] == "2025-06-18"

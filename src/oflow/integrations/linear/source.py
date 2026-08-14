@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from oflow.auth.store import Credentials
-from oflow.core.contract import Item, Malformed
+from oflow.core.contract import Item, Malformed, Unavailable
 from oflow.core.mcp import McpClient
 from oflow.core.text import printable
 
@@ -38,6 +38,40 @@ ACTIVE_STATUS_TYPES = frozenset({"started", "unstarted"})
 # cannot spin forever.
 MAX_PAGES = 10
 
+# The one negotiated-version cache for this process: learned on the first
+# fetch, dropped when a call fails without a handshake (see _Session.call).
+_negotiated_version: str | None = None
+
+
+class _Session:
+    """One fetch's MCP client, with the handshake skipped when the negotiated
+    version is already known — and redone once if that optimism turns out wrong.
+    """
+
+    def __init__(self, token: str, http: httpx.Client) -> None:
+        global _negotiated_version
+        self._skipped_handshake = _negotiated_version is not None
+        self._client = McpClient(ENDPOINT, token, http, version=_negotiated_version)
+        if not self._skipped_handshake:
+            self._client.initialize()
+            _negotiated_version = self._client.version
+
+    def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        global _negotiated_version
+        try:
+            return self._client.call_tool(name, arguments)
+        except (Malformed, Unavailable):
+            if not self._skipped_handshake:
+                raise
+            # The skipped handshake may itself be the failure; pay for a full
+            # one and retry once. AuthExpired is deliberately not recovered:
+            # a rejected token is not something a handshake can fix.
+            _negotiated_version = None
+            self._skipped_handshake = False
+            self._client.initialize()
+            _negotiated_version = self._client.version
+            return self._client.call_tool(name, arguments)
+
 
 @dataclass(frozen=True)
 class Issue(Item):
@@ -49,8 +83,7 @@ class Issue(Item):
 
 
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
-    client = McpClient(ENDPOINT, credentials.access_token, http)
-    client.initialize()
+    session = _Session(credentials.access_token, http)
 
     issues: list[Issue] = []
     cursor: str | None = None
@@ -63,7 +96,7 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
         }
         if cursor:
             arguments["cursor"] = cursor
-        payload = client.call_tool("list_issues", arguments)
+        payload = session.call("list_issues", arguments)
         raw_issues = payload.get("issues")
         if not isinstance(raw_issues, list):
             raise Malformed("list_issues returned no issue list")

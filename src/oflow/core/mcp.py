@@ -42,12 +42,23 @@ LOOPBACK_HOSTS = frozenset[str]({"127.0.0.1", "::1"})
 
 
 class McpClient:
-    def __init__(self, endpoint: str, token: str, http: httpx.Client) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        token: str,
+        http: httpx.Client,
+        version: str | None = None,
+    ) -> None:
         _require_private_transport(endpoint)
         self._endpoint = endpoint
         self._token = token
         self._http = http
-        self._version = MCP_PROTOCOL_VERSION
+        self._version = version or MCP_PROTOCOL_VERSION
+
+    @property
+    def version(self) -> str:
+        """Protocol revision used in requests; initialize() updates it per server negotiation."""
+        return self._version
 
     def _headers(self) -> dict[str, str]:
         return {

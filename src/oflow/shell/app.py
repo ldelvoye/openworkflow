@@ -16,7 +16,9 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from oflow.auth.store import CredentialStoreError, get_credentials, now
+from oflow.auth.refresh import fresh_credentials
+from oflow.auth.store import CredentialStoreError, now
+from oflow.core.config import TabConfig
 from oflow.core.contract import (
     SHELL_KEYS,
     Action,
@@ -83,13 +85,14 @@ class OflowApp(App[None]):
         for shell_key in SHELL_KEYS
     ]
 
-    def __init__(self, tabs: tuple[str, ...], palette: TerminalPalette | None = None) -> None:
+    def __init__(self, tabs: tuple[TabConfig, ...], palette: TerminalPalette | None = None) -> None:
         super().__init__()
         # Adopts the terminal's own palette instead of imposing one: unlike
         # every other built-in theme, ansi-dark resolves through the terminal's
         # native ANSI colors. Named ANSI styles elsewhere depend on this being on.
         self.theme = "ansi-dark"
-        self.tab_ids = tabs
+        self.tab_ids = tuple[str, ...](tab.integration for tab in tabs)
+        self._client_ids = {tab.integration: tab.client_id for tab in tabs}
         self.empty_hint = "no tabs configured — run: oflow connect <integration>"
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
@@ -286,16 +289,20 @@ class OflowApp(App[None]):
                 return
 
         try:
-            credentials = get_credentials(integration_id)
+            with httpx.Client(timeout=30) as http:
+                credentials = fresh_credentials(
+                    integration_id,
+                    integration.manifest.provider,
+                    self._client_ids.get(integration_id),
+                    http,
+                )
+                if credentials is None:
+                    self.call_from_thread(self._show_error, panel, "not connected")
+                    return
+                items = tuple[Item, ...](integration.fetch(credentials, http))
         except CredentialStoreError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
             return
-        if credentials is None:
-            self.call_from_thread(self._show_error, panel, "not connected")
-            return
-        try:
-            with httpx.Client(timeout=30) as http:
-                items = tuple[Item, ...](integration.fetch(credentials, http))
         except Malformed as error:
             # The tab itself is broken, not just momentarily unreachable — stale
             # data would promise a recovery that a shape mismatch cannot deliver.

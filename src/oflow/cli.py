@@ -283,7 +283,7 @@ def _logout(integration_id: str) -> int:
 
 
 def _run() -> int:
-    tabs = tuple(tab.integration for tab in load_config().tabs)
+    tabs = load_config().tabs
     # Must happen before OflowApp exists: once Textual's driver is running it
     # owns stdin, and it has no notion of an OSC color-query response (see
     # query_terminal_palette's docstring) — this is the only safe window.

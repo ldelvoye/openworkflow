@@ -8,6 +8,7 @@ from textual.binding import Binding
 from textual.widgets import Static
 
 from oflow.auth.store import Credentials
+from oflow.core.config import TabConfig
 from oflow.core.contract import SHELL_KEYS, AuthExpired, Item, Malformed, Unavailable
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
@@ -102,7 +103,7 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
     the flag that keeps named ANSI colors (e.g. CHANGE_STYLE) from being
     approximated to RGB.
     """
-    app = OflowApp(tabs=("alpha",))
+    app = OflowApp(tabs=(TabConfig("alpha"),))
     async with app.run_test():
         assert app.theme == "ansi-dark"
         assert app.native_ansi_color is True
@@ -121,7 +122,7 @@ async def test_an_empty_app_renders_the_connect_hint():
 
 @pytest.mark.asyncio
 async def test_q_quits():
-    app = OflowApp(tabs=("alpha",))
+    app = OflowApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.press("q")
         await pilot.pause()
@@ -130,7 +131,7 @@ async def test_q_quits():
 
 @pytest.mark.asyncio
 async def test_shift_right_switches_to_the_next_tab():
-    app = OflowApp(tabs=("alpha", "beta"))
+    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
     async with app.run_test() as pilot:
         assert app.active_tab == "alpha"
         await pilot.press("shift+right")
@@ -155,7 +156,7 @@ async def test_only_the_visible_tab_fetches_on_startup(monkeypatch):
         "oflow.shell.app.OflowApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=("alpha", "beta")).run_test():
+    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test():
         pass
     assert fetched == ["alpha"]
 
@@ -167,7 +168,7 @@ async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
         "oflow.shell.app.OflowApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
     )
-    async with OflowApp(tabs=("alpha",)).run_test() as pilot:
+    async with OflowApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
         await pilot.press("r")
     assert fetched == [("alpha", True)]
@@ -180,7 +181,7 @@ async def test_switching_to_a_tab_fetches_it(monkeypatch):
         "oflow.shell.app.OflowApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=("alpha", "beta")).run_test() as pilot:
+    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         fetched.clear()
         await pilot.press("shift+right")
     assert fetched == ["beta"]
@@ -205,7 +206,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
         lambda self, *args, **kwargs: scheduled.append("timer"),
     )
 
-    async with OflowApp(tabs=("alpha", "beta")).run_test() as pilot:
+    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         await pilot.press("shift+right")
         await pilot.app.workers.wait_for_complete()
 
@@ -214,7 +215,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refreshing_an_unsupported_tab_leaves_its_error_state_alone():
-    app = OflowApp(tabs=("alpha",))
+    app = OflowApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         await pilot.press("r")
@@ -232,7 +233,7 @@ async def test_app_regaining_focus_refreshes_the_active_tab(monkeypatch):
         "oflow.shell.app.OflowApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=("alpha",)).run_test() as pilot:
+    async with OflowApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
         pilot.app.post_message(events.AppFocus())
         await pilot.pause()
@@ -250,7 +251,7 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=("alpha", "linear"))
+    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
         await pilot.press("shift+right")
         await pilot.pause()
@@ -274,7 +275,7 @@ async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=("linear", "alpha"))
+    app = OflowApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.active_tab == "linear"
@@ -290,7 +291,7 @@ async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_app_injects_its_seen_state_into_every_panel_that_tracks_it():
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -315,7 +316,7 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
 
     monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -335,7 +336,7 @@ class _RaisingIntegration:
     """A fake integration whose fetch always fails with a given IntegrationError."""
 
     def __init__(self, error: Exception) -> None:
-        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5))
+        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5), provider=None)
         self.panel_class = Panel
         self._error = error
 
@@ -344,7 +345,10 @@ class _RaisingIntegration:
 
 
 def _stub_credentials(monkeypatch) -> None:
-    monkeypatch.setattr("oflow.shell.app.get_credentials", lambda integration_id: CREDENTIALS)
+    monkeypatch.setattr(
+        "oflow.shell.app.fresh_credentials",
+        lambda integration_id, provider, client_id, http: CREDENTIALS,
+    )
 
 
 @pytest.mark.asyncio
@@ -355,7 +359,7 @@ async def test_malformed_is_always_error_even_when_items_exist(monkeypatch):
         lambda integration_id: _RaisingIntegration(Malformed("issue shape changed")),
     )
 
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -375,7 +379,7 @@ async def test_auth_expired_is_always_error_with_a_reconnect_hint(monkeypatch):
         lambda integration_id: _RaisingIntegration(AuthExpired("token rejected")),
     )
 
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -395,7 +399,7 @@ async def test_unavailable_keeps_stale_items_but_errors_when_empty(monkeypatch):
         lambda integration_id: _RaisingIntegration(Unavailable("linear is down")),
     )
 
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -421,7 +425,7 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
     the active tab's section: title = integration id, rows from the panel's
     own BINDINGS plus the manifest's actions, deduped by key.
     """
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -453,7 +457,7 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
     lines instead, with a floor tied to the real content rather than an
     arbitrary constant.
     """
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -477,7 +481,7 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
 
 @pytest.mark.asyncio
 async def test_escape_closes_the_help_overlay():
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -492,7 +496,7 @@ async def test_escape_closes_the_help_overlay():
 
 @pytest.mark.asyncio
 async def test_question_mark_again_also_closes_the_overlay():
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -512,7 +516,7 @@ async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
         "oflow.shell.app.OflowApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
     )
-    app = OflowApp(tabs=("alpha", "linear"))
+    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -549,7 +553,7 @@ async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_cr
     # "alpha" has no integration (see _panel_for's UnknownIntegration handling
     # elsewhere in this file); _help_tab_section's own except UnknownIntegration
     # branch must produce an empty tab section rather than raising.
-    app = OflowApp(tabs=("alpha",))
+    app = OflowApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -566,7 +570,7 @@ async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_cr
 
 @pytest.mark.asyncio
 async def test_system_commands_drop_maximize_and_theme_but_keep_the_rest():
-    app = OflowApp(tabs=("linear",))
+    app = OflowApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = pilot.app.screen
@@ -603,7 +607,7 @@ PALETTE = TerminalPalette(
 
 @pytest.mark.asyncio
 async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
-    app = OflowApp(tabs=("linear",), palette=PALETTE)
+    app = OflowApp(tabs=(TabConfig("linear"),), palette=PALETTE)
     async with app.run_test() as pilot:
         await pilot.pause()
         svg = app.export_screenshot()
@@ -614,7 +618,7 @@ async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
 
 @pytest.mark.asyncio
 async def test_screenshot_without_a_palette_keeps_the_current_fallback_mapping():
-    app = OflowApp(tabs=("linear",))  # no palette — the query found nothing
+    app = OflowApp(tabs=(TabConfig("linear"),))  # no palette — the query found nothing
     async with app.run_test() as pilot:
         await pilot.pause()
         svg = app.export_screenshot()
@@ -622,3 +626,37 @@ async def test_screenshot_without_a_palette_keeps_the_current_fallback_mapping()
     # Unchanged from Textual's own App.export_screenshot: Rich's generic
     # SVG_EXPORT_THEME background, since no theme is passed to export_svg.
     assert "#292929" in svg
+
+
+# --- Task 4: wiring token refresh into the shell ---
+
+
+@pytest.mark.asyncio
+async def test_the_tab_client_id_reaches_the_refresh_layer(monkeypatch):
+    seen: list[tuple[str, str | None]] = []
+
+    def fake_fresh(integration_id, provider, client_id, http):
+        seen.append((integration_id, client_id))
+        return None
+
+    monkeypatch.setattr("oflow.shell.app.fresh_credentials", fake_fresh)
+    app = OflowApp(tabs=(TabConfig("linear", client_id="client-42"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+
+    assert seen == [("linear", "client-42")]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_refresh_shows_the_reconnect_hint(monkeypatch):
+    def fake_fresh(integration_id, provider, client_id, http):
+        raise AuthExpired("token refresh failed (invalid_grant)")
+
+    monkeypatch.setattr("oflow.shell.app.fresh_credentials", fake_fresh)
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(Panel)
+
+    assert panel.state is PanelState.ERROR
+    assert "run: oflow connect linear" in panel.message
