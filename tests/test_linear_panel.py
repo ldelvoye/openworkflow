@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.widgets import Static
 
 from oflow.core.state import SeenState
 from oflow.integrations.linear.panel import LinearPanel
@@ -223,7 +224,8 @@ async def test_a_hostile_title_is_never_interpreted_as_markup_in_the_real_render
     async with _LinearPanelHarness(panel).run_test() as pilot:
         panel.refresh()
         await pilot.pause()
-        rendered = "".join(panel.render_line(y).text for y in range(panel.size.height))
+        body = panel.query_one("#body", Static)
+        rendered = "".join(body.render_line(y).text for y in range(body.size.height))
 
     # Styled output is built as rich.text.Text with literal appends, so a title
     # that looks like markup must come out unparsed rather than styled/consumed.
@@ -237,6 +239,13 @@ async def test_a_hostile_status_is_never_interpreted_as_markup_in_the_real_rende
     async with _LinearPanelHarness(panel).run_test() as pilot:
         panel.refresh()
         await pilot.pause()
-        rendered = "".join(panel.render_line(y).text for y in range(panel.size.height))
+        body = panel.query_one("#body", Static)
+        rendered = "".join(body.render_line(y).text for y in range(body.size.height))
 
     assert "[blue]Weird[/blue]" in rendered
+
+
+def test_plain_output_is_derived_from_the_styled_render():
+    """One row builder: the plain path must be the styled Text's own .plain."""
+    panel = panel_with(issue("ENG-1", "In Review"), issue("ENG-2", "Todo"))
+    assert panel.body_text() == panel.render_ready().plain.strip()

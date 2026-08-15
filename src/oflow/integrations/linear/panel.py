@@ -10,13 +10,12 @@ from __future__ import annotations
 import webbrowser
 
 from rich.text import Text
-from textual.app import RenderResult
 from textual.binding import Binding
 
 from oflow.core.config import ConfigError
 from oflow.core.state import SeenState
 from oflow.integrations.linear.source import Issue
-from oflow.shell.panel import Panel, PanelState
+from oflow.shell.panel import Panel
 
 CHANGED_MARK = "●"
 # A standard ANSI color name (not a hex/truecolor value or a Textual $variable),
@@ -118,30 +117,7 @@ class LinearPanel(Panel):
             groups[issue.status].append(issue)
         return tuple(issue for status in order for issue in groups[status])
 
-    def render_items(self) -> str:
-        issues = self._grouped()
-        cursor = self._clamped_cursor(len(issues))
-        lines: list[str] = []
-        current_status = ""
-        for index, issue in enumerate(issues):
-            if issue.status != current_status:
-                current_status = issue.status
-                lines.append(current_status)
-            lines.append(self._plain_row(issue, index == cursor))
-        return "\n".join(lines).strip()
-
-    def _plain_row(self, issue: Issue, selected: bool) -> str:
-        pointer = SELECTED_MARK if selected else " "
-        mark = CHANGED_MARK if self.seen.is_changed(self.integration_id, issue) else " "
-        glyph = _priority_glyph(issue.priority)
-        return f"{pointer} {mark} {issue.id}  {glyph} {issue.title}"
-
-    def render(self) -> RenderResult:
-        if self.state is not PanelState.READY:
-            return super().render()
-        return self._render_ready()
-
-    def _render_ready(self) -> Text:
+    def render_ready(self) -> Text:
         issues = self._grouped()
         cursor = self._clamped_cursor(len(issues))
         lines: list[Text] = []
@@ -149,13 +125,11 @@ class LinearPanel(Panel):
         for index, issue in enumerate(issues):
             if issue.status != current_status:
                 current_status = issue.status
-                header = Text()
-                header.append(current_status, style="dim")
-                lines.append(header)
-            lines.append(self._styled_row(issue, index == cursor))
+                lines.append(Text(current_status, style="dim"))
+            lines.append(self._row(issue, index == cursor))
         return Text("\n").join(lines)
 
-    def _styled_row(self, issue: Issue, selected: bool) -> Text:
+    def _row(self, issue: Issue, selected: bool) -> Text:
         row = Text(style="bold") if selected else Text()
         row.append(f"{SELECTED_MARK} " if selected else "  ")
         changed = self.seen.is_changed(self.integration_id, issue)

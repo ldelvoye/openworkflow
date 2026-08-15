@@ -86,7 +86,8 @@ async def test_panel_message_disables_markup_so_server_text_cannot_style_the_pan
         panel.message = "[red]boom[/red]"
         panel.refresh()
         await pilot.pause()
-        rendered = "".join(panel.render_line(y).text for y in range(panel.size.height))
+        body = panel.query_one("#body", Static)
+        rendered = "".join(body.render_line(y).text for y in range(body.size.height))
 
     # A styled server string would come out as "boom" in red with the tags
     # consumed; markup off keeps the bracket text literal in what's drawn.
