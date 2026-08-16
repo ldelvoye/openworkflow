@@ -1,14 +1,16 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from rich.text import Text
 from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from oflow.core.state import SeenState
-from oflow.integrations.linear.panel import LinearPanel
-from oflow.integrations.linear.source import Issue
+from oflow.integrations.linear.panel import LinearPanel, _age
+from oflow.integrations.linear.source import Comment, Issue, IssueDetail
 from oflow.shell.panel import PanelState
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
@@ -249,3 +251,185 @@ def test_plain_output_is_derived_from_the_styled_render():
     """One row builder: the plain path must be the styled Text's own .plain."""
     panel = panel_with(issue("ENG-1", "In Review"), issue("ENG-2", "Todo"))
     assert panel.body_text() == panel.render_ready().plain.strip()
+
+
+# --- Detail region ---
+
+
+def detail(description: str = "the description", *bodies: str) -> IssueDetail:
+    return IssueDetail(
+        description=description,
+        assignee="Lucas",
+        comments=tuple(Comment(author="alice", body=body, created_at=NOW) for body in bodies),
+    )
+
+
+def region_text(panel: LinearPanel) -> str:
+    content = panel.query_one("#detail-content", Static)
+    # Static in this Textual version exposes the raw value passed to update()
+    # via `.content` (`.renderable` no longer exists); `_refresh_detail`
+    # always updates with a rich.text.Text, hence the isinstance check below.
+    value = content.content
+    return value.plain if isinstance(value, Text) else str(value)
+
+
+async def open_detail(pilot, panel):
+    panel.focus()
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_enter_opens_the_detail_region_in_a_loading_state():
+    panel = panel_with(issue("ENG-1"))
+    requested: list = []
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        panel.post_message = _capture(panel, requested)  # see helper below
+        await open_detail(pilot, panel)
+
+        region = panel.query_one("#detail", VerticalScroll)
+        assert panel.detail_open is True
+        assert region.has_class("-open")
+        assert "loading" in region_text(panel)
+    assert len(requested) == 1 and requested[0].item.id == "ENG-1"
+
+
+def _capture(panel, into):
+    original = type(panel).post_message
+
+    def wrapped(message):
+        if isinstance(message, panel.DetailRequested):
+            into.append(message)
+        return original(panel, message)
+
+    return wrapped
+
+
+@pytest.mark.asyncio
+async def test_show_detail_renders_header_description_and_comments():
+    panel = panel_with(issue("ENG-1"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        key = panel.detail_key(issue("ENG-1"))
+        panel.show_detail(key, detail("the description", "first comment", "second comment"))
+        await pilot.pause()
+
+        text = region_text(panel)
+    assert "ENG-1" in text and "In Review" in text and "Lucas" in text
+    assert "the description" in text
+    assert "alice" in text and "first comment" in text and "second comment" in text
+
+
+@pytest.mark.asyncio
+async def test_enter_again_on_the_same_issue_closes_the_region():
+    panel = panel_with(issue("ENG-1"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert panel.detail_open is False
+        assert not panel.query_one("#detail", VerticalScroll).has_class("-open")
+
+
+@pytest.mark.asyncio
+async def test_moving_the_cursor_shows_a_hint_for_an_unloaded_issue():
+    panel = panel_with(issue("ENG-1"), issue("ENG-2"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        panel.show_detail(panel.detail_key(issue("ENG-1")), detail())
+        await pilot.press("down")
+        await pilot.pause()
+        assert "press enter to load" in region_text(panel)
+
+        await pilot.press("up")
+        await pilot.pause()
+        assert "the description" in region_text(panel)  # cache hit, no refetch
+
+
+@pytest.mark.asyncio
+async def test_a_detail_error_renders_in_the_region_and_enter_retries():
+    panel = panel_with(issue("ENG-1"))
+    requested: list = []
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        panel.post_message = _capture(panel, requested)
+        await open_detail(pilot, panel)
+        panel.show_detail_error(panel.detail_key(issue("ENG-1")), "linear is down")
+        await pilot.pause()
+        assert "could not load: linear is down" in region_text(panel)
+
+        await pilot.press("enter")  # same issue: closes
+        await pilot.press("enter")  # reopens: error is not cached as data, refetches
+        await pilot.pause()
+    assert len(requested) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_hostile_description_is_never_interpreted_as_markup():
+    panel = panel_with(issue("ENG-1"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        panel.show_detail(panel.detail_key(issue("ENG-1")), detail("[red]x[/red]"))
+        await pilot.pause()
+        content = panel.query_one("#detail-content", Static)
+        rendered = "".join(content.render_line(y).text for y in range(content.size.height))
+    assert "[red]x[/red]" in rendered
+
+
+@pytest.mark.asyncio
+async def test_shift_down_scrolls_an_overflowing_detail():
+    long_description = "\n".join(f"line {index}" for index in range(80))
+    panel = panel_with(issue("ENG-1"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        panel.show_detail(panel.detail_key(issue("ENG-1")), detail(long_description))
+        await pilot.pause()
+        region = panel.query_one("#detail", VerticalScroll)
+        before = region.scroll_offset.y
+        await pilot.press("shift+down")
+        await pilot.pause()
+        assert region.scroll_offset.y > before
+
+
+@pytest.mark.asyncio
+async def test_refresh_preserves_scroll_but_a_cursor_move_resets_it():
+    long_description = "\n".join(f"line {index}" for index in range(80))
+    panel = panel_with(issue("ENG-1"), issue("ENG-2"))
+    async with _LinearPanelHarness(panel).run_test() as pilot:
+        await open_detail(pilot, panel)
+        panel.show_detail(panel.detail_key(issue("ENG-1")), detail(long_description))
+        await pilot.pause()
+        await pilot.press("shift+down", "shift+down", "shift+down")
+        await pilot.pause()
+        region = panel.query_one("#detail", VerticalScroll)
+        scrolled = region.scroll_offset.y
+        assert scrolled > 0
+
+        panel.refresh()
+        await pilot.pause()
+        assert region.scroll_offset.y == scrolled
+
+        await pilot.press("down")
+        await pilot.pause()
+        assert region.scroll_offset.y == 0
+
+
+# --- _age ---
+
+
+def test_age_of_a_future_timestamp_reads_now(monkeypatch):
+    """A future stamp is clock skew, not something to render as a large past age."""
+    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
+    assert _age(NOW + timedelta(seconds=1)) == "now"
+
+
+def test_age_of_a_moment_ago_reads_now(monkeypatch):
+    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
+    assert _age(NOW - timedelta(seconds=30)) == "now"
+
+
+def test_age_scales_from_minutes_to_days(monkeypatch):
+    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
+    assert _age(NOW - timedelta(minutes=5)) == "5m"
+    assert _age(NOW - timedelta(hours=3)) == "3h"
+    assert _age(NOW - timedelta(days=2)) == "2d"

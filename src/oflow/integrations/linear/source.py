@@ -14,7 +14,7 @@ import httpx
 from oflow.auth.store import Credentials
 from oflow.core.contract import Item, Malformed, Unavailable
 from oflow.core.mcp import McpClient
-from oflow.core.text import printable
+from oflow.core.text import printable, printable_block
 
 ENDPOINT = "https://mcp.linear.app/mcp"
 
@@ -80,6 +80,23 @@ class Issue(Item):
     status_type: str
     team: str
     priority: str
+
+
+COMMENT_LIMIT = 5
+
+
+@dataclass(frozen=True)
+class Comment:
+    author: str
+    body: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class IssueDetail:
+    description: str
+    assignee: str
+    comments: tuple[Comment, ...]
 
 
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
@@ -164,4 +181,46 @@ def _issue_of(raw: Any) -> Issue:
         status_type=_string(raw, "statusType"),
         team=_optional_string(raw, "team"),
         priority=_priority_name(raw),
+    )
+
+
+def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
+    """The selected issue's expanded view: description, assignee, newest
+    comments (oldest first, so reading order matches the thread)."""
+    session = _Session(credentials.access_token, http)
+    issue_payload = session.call("get_issue", {"id": item.id})
+    comments_payload = session.call("list_comments", {"issueId": item.id, "limit": 25})
+    raw_comments = comments_payload.get("comments")
+    if not isinstance(raw_comments, list):
+        raise Malformed("list_comments returned no comment list")
+    comments = sorted(
+        (_comment_of(raw) for raw in raw_comments), key=lambda comment: comment.created_at
+    )
+    assignee = _optional_string(issue_payload, "assignee")
+    return IssueDetail(
+        description=printable_block(_optional_string(issue_payload, "description")),
+        assignee=printable(assignee) if assignee else "",
+        comments=tuple(comments[-COMMENT_LIMIT:]),
+    )
+
+
+def _comment_of(raw: Any) -> Comment:
+    if not isinstance(raw, dict):
+        raise Malformed(f"a comment was {type(raw).__name__}, expected an object")
+    author = raw.get("author")
+    if author is None:
+        name = ""
+    elif isinstance(author, dict):
+        raw_name = _optional_string(author, "name")
+        name = printable(raw_name) if raw_name else ""
+    else:
+        raise Malformed(f"'author' was {type(author).__name__}, expected an object")
+    try:
+        created_at = datetime.fromisoformat(raw["createdAt"])
+    except (KeyError, TypeError, ValueError) as error:
+        raise Malformed(
+            f"a comment did not match the expected shape ({printable(str(error))})"
+        ) from error
+    return Comment(
+        author=name, body=printable_block(_string(raw, "body"), limit=2000), created_at=created_at
     )

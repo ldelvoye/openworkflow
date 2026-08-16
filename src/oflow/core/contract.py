@@ -163,3 +163,9 @@ class Integration(Protocol):
     def fetch(self, credentials: Credentials, http: httpx.Client) -> Sequence[Item]:
         """Return the integration's items. Raises IntegrationError, never anything else."""
         ...
+
+    def fetch_detail(self, credentials: Credentials, http: httpx.Client, item: Item) -> object:
+        """One item's expanded detail, in whatever shape this integration's
+        panel renders. The shell never inspects it. Raises IntegrationError,
+        never anything else."""
+        ...

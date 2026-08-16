@@ -266,6 +266,46 @@ class OflowApp(App[None]):
         if panel is not None:
             self.refresh_tab(self.active_tab, panel, force=True)
 
+    def on_panel_detail_requested(self, message: Panel.DetailRequested) -> None:
+        # Only the focused panel of the visible tab can post this, so the
+        # active tab names the integration that owns the item.
+        if self.active_tab:
+            self.fetch_detail(self.active_tab, message.panel, message.item)
+
+    @work(thread=True)
+    def fetch_detail(self, integration_id: str, panel: Panel, item: Item) -> None:
+        """Fetch one item's detail off the UI thread; results and errors land
+        in the panel's detail region and never touch the list's state."""
+        key = Panel.detail_key(item)
+        try:
+            integration = get_integration(integration_id)
+        except UnknownIntegration:
+            return
+        try:
+            with httpx.Client(timeout=30) as http:
+                credentials = fresh_credentials(
+                    integration_id,
+                    integration.manifest.provider,
+                    self._client_ids.get(integration_id),
+                    http,
+                )
+                if credentials is None:
+                    self.call_from_thread(panel.show_detail_error, key, "not connected")
+                    return
+                detail = integration.fetch_detail(credentials, http, item)
+        except CredentialStoreError as error:
+            self.call_from_thread(panel.show_detail_error, key, str(error))
+            return
+        except AuthExpired as error:
+            self.call_from_thread(
+                panel.show_detail_error, key, f"{error} — run: oflow connect {integration_id}"
+            )
+            return
+        except IntegrationError as error:
+            self.call_from_thread(panel.show_detail_error, key, str(error))
+            return
+        self.call_from_thread(panel.show_detail, key, detail)
+
     @work(thread=True)
     def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:
         """Fetch integration_id's items off the UI thread and hand results to panel.

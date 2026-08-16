@@ -229,3 +229,98 @@ def test_an_expired_token_is_never_retried_with_a_new_handshake():
     with pytest.raises(AuthExpired):
         fetch_with(handler)
     assert methods.count("initialize") == 1  # only the warm-up's
+
+
+DETAIL = json.loads((Path(__file__).parent / "fixtures" / "linear_issue_detail.json").read_text())
+
+
+def detail_handler(overrides: dict | None = None) -> Callable[[httpx.Request], httpx.Response]:
+    payloads = json.loads(json.dumps(DETAIL)) | (overrides or {})
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        name = body["params"]["name"]
+        return sse(payloads["issue"] if name == "get_issue" else payloads["comments"])
+
+    return handler
+
+
+def detail_with(handler):
+    from oflow.core.contract import Item
+    from oflow.integrations.linear.source import fetch_detail
+
+    item = Item(id="ENG-1", updated_at=datetime(2026, 8, 13, 12, 0, tzinfo=UTC), url="https://x")
+    return fetch_detail(CREDENTIALS, httpx.Client(transport=httpx.MockTransport(handler)), item)
+
+
+def test_detail_carries_description_assignee_and_capped_ascending_comments():
+    detail = detail_with(detail_handler())
+    assert detail.description == "First line.\nSecond line."
+    assert detail.assignee == "Lucas Delvoye"
+    assert [comment.body for comment in detail.comments] == ["c2", "c3", "c4", "middle", "newest"]
+    assert detail.comments[-1].author == "alice"
+
+
+def test_a_null_description_and_assignee_become_empty_strings():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"description": None, "assignee": None}
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == ""
+    assert detail.assignee == ""
+
+
+def test_detail_text_is_sanitized_at_the_source():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"description": "ok\n\x1b[31mbad\x1b[0m"}
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert "\x1b" not in detail.description
+    assert "\n" in detail.description
+
+
+def test_detail_assignee_is_sanitized_at_the_source():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"assignee": "Lu\x1b[31mcas"}
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert "\x1b" not in detail.assignee
+
+
+def test_comment_author_is_sanitized_at_the_source():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["author"] = {"id": "u1", "name": "Al\x1b[31mice"}
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert "\x1b" not in detail.comments[-1].author
+
+
+def test_comments_that_are_not_a_list_are_malformed():
+    with pytest.raises(Malformed):
+        detail_with(detail_handler({"comments": {"comments": "nope"}}))
+
+
+def test_a_comment_without_a_body_is_malformed():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    del comments["comments"][0]["body"]
+    with pytest.raises(Malformed):
+        detail_with(detail_handler({"comments": comments}))
+
+
+def test_a_comment_without_an_author_degrades_to_anonymous():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["author"] = None
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert detail.comments[-1].author == ""
+
+
+def test_detail_reuses_the_cached_handshake():
+    methods: list[str] = []
+    warm = counting_handler(methods)
+    fetch_with(warm)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        methods.append(body["method"])
+        if body["method"] != "tools/call":
+            return httpx.Response(202)
+        name = body["params"]["name"]
+        return sse(DETAIL["issue"] if name == "get_issue" else DETAIL["comments"])
+
+    detail_with(handler)
+    assert methods.count("initialize") == 1

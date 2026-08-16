@@ -661,3 +661,63 @@ async def test_a_failed_refresh_shows_the_reconnect_hint(monkeypatch):
 
     assert panel.state is PanelState.ERROR
     assert "run: oflow connect linear" in panel.message
+
+
+# --- Task 9: the shell brokers detail fetches ---
+
+
+class _DetailIntegration:
+    def __init__(self) -> None:
+        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5), provider=None)
+        self.panel_class = LinearPanel
+
+    def fetch(self, credentials, http):
+        return ()
+
+    def fetch_detail(self, credentials, http, item):
+        return f"detail of {item.id}"
+
+
+@pytest.mark.asyncio
+async def test_a_detail_request_round_trips_through_the_worker(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "oflow.shell.app.get_integration", lambda integration_id: _DetailIntegration()
+    )
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(LinearPanel)
+        panel.items = (issue("ENG-1"),)
+        panel.state = PanelState.READY
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    key = panel.detail_key(issue("ENG-1"))
+    assert panel._details[key] == "detail of ENG-1"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_detail_fetch_lands_in_the_region_not_the_list(monkeypatch):
+    _stub_credentials(monkeypatch)
+
+    class _FailingDetail(_DetailIntegration):
+        def fetch_detail(self, credentials, http, item):
+            raise Unavailable("linear is down")
+
+    monkeypatch.setattr("oflow.shell.app.get_integration", lambda integration_id: _FailingDetail())
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(LinearPanel)
+        panel.items = (issue("ENG-1"),)
+        panel.state = PanelState.READY
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert panel._detail_errors[panel.detail_key(issue("ENG-1"))] == "linear is down"
+    assert panel.state is PanelState.READY  # the list never notices
