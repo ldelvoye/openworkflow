@@ -12,3 +12,15 @@ def printable(value: str, limit: int = 120) -> str:
     """
     cleaned = "".join(character for character in value if character.isprintable())
     return cleaned[:limit] or "(unspecified)"
+
+
+def printable_block(value: str, limit: int = 4000) -> str:
+    """printable() for multi-line text: newlines survive, every line is
+    sanitized on its own, and the cap applies to the whole block. Empty stays
+    empty — the caller decides what an absent description reads as.
+    """
+    lines = (
+        "".join(character for character in line if character.isprintable())
+        for line in value.split("\n")
+    )
+    return "\n".join(lines)[:limit]
