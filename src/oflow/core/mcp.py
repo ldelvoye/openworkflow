@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from oflow import __version__
 from oflow.core.contract import AuthExpired, Malformed, Unavailable
 from oflow.core.text import printable
 
@@ -94,7 +95,7 @@ class McpClient:
                 "params": {
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "oflow", "version": "0.0.0"},
+                    "clientInfo": {"name": "oflow", "version": __version__},
                 },
             }
         )

@@ -12,6 +12,7 @@ import webbrowser
 
 import httpx
 
+from oflow import __version__
 from oflow.auth import oauth
 from oflow.auth.store import (
     Credentials,
@@ -285,6 +286,7 @@ def _run() -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="oflow")
+    parser.add_argument("--version", action="version", version=f"oflow {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     connect = subparsers.add_parser("connect", help="authenticate an integration")

@@ -89,3 +89,15 @@ not registered fails with "not supported" rather than half-working.
   ordering, a protocol quirk) earns one line.
 - Commits: `type(scope): summary`, lowercase, imperative. Bodies only when the
   diff can't say it.
+
+## Releasing
+
+`pyproject.toml`'s `version` is the only place a release is recorded —
+`__version__` and everything else read it from installed package metadata.
+
+1. `uv version --bump <patch|minor|major>`, which bumps `version` in
+   `pyproject.toml` and syncs the lockfile in one step.
+2. Prune the released section from [docs/ROADMAP.md](docs/ROADMAP.md).
+3. Four gates green (see Setup above).
+4. Commit `chore: release vX.Y.Z`, tag `vX.Y.Z` on that commit, then push the
+   branch and the tag.
