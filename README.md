@@ -1,4 +1,4 @@
-# openworkflow
+# oflow
 
 A keyboard-driven terminal dashboard. Each integration you connect becomes a tab.
 Nothing is enabled by default.
