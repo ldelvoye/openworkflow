@@ -14,8 +14,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from oflow.auth.store import Credentials
-from oflow.core.contract import Item, Malformed, Unavailable
-from oflow.core.mcp import McpClient
+from oflow.core.contract import Item, Malformed
+from oflow.core.mcp import McpSession
+from oflow.core.shape import optional_string, required_string, timestamp
 from oflow.core.text import capped, printable, printable_block
 
 ENDPOINT = "https://mcp.linear.app/mcp"
@@ -75,40 +76,6 @@ ACTIVE_STATUS_TYPES = frozenset[str]({"started", "unstarted"})
 
 MAX_PAGES = 10
 
-# The one negotiated-version cache for this process: learned on the first
-# fetch, dropped when a call fails without a handshake (see _Session.call).
-_negotiated_version: str | None = None
-
-
-class _Session:
-    """One fetch's MCP client, with the handshake skipped when the negotiated
-    version is already known — and redone once if that optimism turns out wrong.
-    """
-
-    def __init__(self, token: str, http: httpx.Client) -> None:
-        global _negotiated_version
-        self._skipped_handshake = _negotiated_version is not None
-        self._client = McpClient(ENDPOINT, token, http, version=_negotiated_version)
-        if not self._skipped_handshake:
-            self._client.initialize()
-            _negotiated_version = self._client.version
-
-    def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        global _negotiated_version
-        try:
-            return self._client.call_tool(name, arguments)
-        except (Malformed, Unavailable):
-            if not self._skipped_handshake:
-                raise
-            # The skipped handshake may itself be the failure; pay for a full
-            # one and retry once. AuthExpired is deliberately not recovered:
-            # a rejected token is not something a handshake can fix.
-            _negotiated_version = None
-            self._skipped_handshake = False
-            self._client.initialize()
-            _negotiated_version = self._client.version
-            return self._client.call_tool(name, arguments)
-
 
 @dataclass(frozen=True)
 class Issue(Item):
@@ -143,7 +110,7 @@ class IssueDetail:
 
 
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
-    session = _Session(credentials.access_token, http)
+    session = McpSession(ENDPOINT, credentials.access_token, http)
 
     issues: list[Issue] = []
     cursor: str | None = None
@@ -172,58 +139,26 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
     return tuple(newest_first)
 
 
-def _string(raw: dict[str, Any], key: str) -> str:
-    """A field the panel renders unconditionally, so absent or non-str is Malformed.
-
-    ``.get`` rather than ``[]``: a missing key and an explicit ``null`` both
-    fail the isinstance check the same way, so one branch covers both.
-    """
-    value = raw.get(key)
-    if not isinstance(value, str):
-        raise Malformed(f"{key!r} was {type(value).__name__}, expected a string")
-    return value
-
-
-def _optional_string(raw: dict[str, Any], key: str) -> str:
-    """A field the panel treats as optional: absent or null defaults to "",
-    but a present value of the wrong type still means the server's shape
-    cannot be trusted.
-    """
-    value = raw.get(key)
-    if value is None:
-        return ""
-    if not isinstance(value, str):
-        raise Malformed(f"{key!r} was {type(value).__name__}, expected a string")
-    return value
-
-
 def _priority_name(raw: dict[str, Any]) -> str:
     priority = raw.get("priority")
     if priority is None:
         return ""
     if not isinstance(priority, dict):
         raise Malformed(f"'priority' was {type(priority).__name__}, expected an object")
-    return _optional_string(priority, "name")
+    return optional_string(priority, "name")
 
 
 def _issue_of(raw: Any) -> Issue:
     if not isinstance(raw, dict):
         raise Malformed(f"an issue was {type(raw).__name__}, expected an object")
-    try:
-        updated_at = datetime.fromisoformat(raw["updatedAt"])
-    except (KeyError, TypeError, ValueError) as error:
-        raise Malformed(
-            f"an issue did not match the expected shape ({printable(str(error))})"
-        ) from error
-
     return Issue(
-        id=_string(raw, "id"),
-        updated_at=updated_at,
-        url=_string(raw, "url"),
-        title=_string(raw, "title"),
-        status=_string(raw, "status"),
-        status_type=_string(raw, "statusType"),
-        team=_optional_string(raw, "team"),
+        id=required_string(raw, "id"),
+        updated_at=timestamp(raw, "updatedAt"),
+        url=required_string(raw, "url"),
+        title=required_string(raw, "title"),
+        status=required_string(raw, "status"),
+        status_type=required_string(raw, "statusType"),
+        team=optional_string(raw, "team"),
         priority=_priority_name(raw),
     )
 
@@ -231,7 +166,7 @@ def _issue_of(raw: Any) -> Issue:
 def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
     """The selected issue's expanded view: description, assignee, newest
     comments (oldest first, so reading order matches the thread)."""
-    session = _Session(credentials.access_token, http)
+    session = McpSession(ENDPOINT, credentials.access_token, http)
     issue_payload = session.call("get_issue", {"id": item.id})
     comments_payload = session.call(
         "list_comments", {"issueId": item.id, "limit": COMMENTS_FETCH_LIMIT}
@@ -242,13 +177,13 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
     comments = sorted(
         (_comment_of(raw) for raw in raw_comments), key=lambda comment: comment.created_at
     )
-    assignee = _optional_string(issue_payload, "assignee")
+    assignee = optional_string(issue_payload, "assignee")
     # Sanitize uncapped, then unwrap, then cap: unwrapping after capping could
     # cut mid-tag and leave one of our own <issue>/<user>/... fragments
     # dangling in what the panel renders.
     description = capped(
         _unwrap_linear_tags(
-            printable_block(_optional_string(issue_payload, "description"), limit=None)
+            printable_block(optional_string(issue_payload, "description"), limit=None)
         ),
         DESCRIPTION_LIMIT,
     )
@@ -269,17 +204,13 @@ def _comment_of(raw: Any) -> Comment:
     if author is None:
         name = ""
     elif isinstance(author, dict):
-        raw_name = _optional_string(author, "name")
+        raw_name = optional_string(author, "name")
         name = printable(raw_name) if raw_name else ""
     else:
         raise Malformed(f"'author' was {type(author).__name__}, expected an object")
-    try:
-        created_at = datetime.fromisoformat(raw["createdAt"])
-    except (KeyError, TypeError, ValueError) as error:
-        raise Malformed(
-            f"a comment did not match the expected shape ({printable(str(error))})"
-        ) from error
+    created_at = timestamp(raw, "createdAt")
     body = capped(
-        _unwrap_linear_tags(printable_block(_string(raw, "body"), limit=None)), COMMENT_BODY_LIMIT
+        _unwrap_linear_tags(printable_block(required_string(raw, "body"), limit=None)),
+        COMMENT_BODY_LIMIT,
     )
     return Comment(author=name, body=body, created_at=created_at)

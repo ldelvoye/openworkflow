@@ -1,6 +1,6 @@
 import io
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -12,7 +12,7 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from oflow.core.state import SeenState
-from oflow.integrations.linear.panel import LinearPanel, _age
+from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Comment, Issue, IssueDetail
 from oflow.shell.markdown import is_local_path
 from oflow.shell.panel import PanelState
@@ -413,7 +413,7 @@ async def test_enter_on_a_different_issue_while_the_pane_is_open_marks_that_issu
 
 def test_a_failed_seen_save_on_enter_does_not_crash_and_notifies_instead(monkeypatch):
     """Mirrors test_a_failed_seen_save_does_not_crash_and_notifies_instead for
-    the `o` path — enter shares the same _mark_seen helper, so it must survive
+    the `o` path — enter shares the same Panel.mark_seen, so it must survive
     the same unwrapped OSError from a real disk failure.
     """
 
@@ -851,24 +851,3 @@ async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
         at_bottom = gutter_text()
     assert "↑" in at_bottom
     assert "↓" not in at_bottom
-
-
-# --- _age ---
-
-
-def test_age_of_a_future_timestamp_reads_now(monkeypatch):
-    """A future stamp is clock skew, not something to render as a large past age."""
-    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
-    assert _age(NOW + timedelta(seconds=1)) == "now"
-
-
-def test_age_of_a_moment_ago_reads_now(monkeypatch):
-    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
-    assert _age(NOW - timedelta(seconds=30)) == "now"
-
-
-def test_age_scales_from_minutes_to_days(monkeypatch):
-    monkeypatch.setattr("oflow.integrations.linear.panel.now", lambda: NOW)
-    assert _age(NOW - timedelta(minutes=5)) == "5m"
-    assert _age(NOW - timedelta(hours=3)) == "3h"
-    assert _age(NOW - timedelta(days=2)) == "2d"

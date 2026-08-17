@@ -8,17 +8,14 @@ like "[red]x[/red]" cannot style or hide anything in the panel.
 from __future__ import annotations
 
 import webbrowser
-from datetime import datetime
 
 from rich.console import Group, RenderableType
 from rich.text import Text
 from textual.binding import Binding
 
-from oflow.auth.store import now
-from oflow.core.config import ConfigError
 from oflow.core.contract import Item
-from oflow.core.state import SeenState
 from oflow.integrations.linear.source import Issue, IssueDetail
+from oflow.shell.format import age
 from oflow.shell.markdown import Markdown
 from oflow.shell.panel import Panel
 
@@ -81,20 +78,6 @@ def _hidden_comments_line(hidden: int, lower_bound: bool) -> Text:
     return Text(f"… {count} earlier {noun}", style="dim")
 
 
-def _age(moment: datetime) -> str:
-    delta = now() - moment
-    # A future stamp is clock skew, and anything under a minute reads the
-    # same either way.
-    if delta.total_seconds() < 60:
-        return "now"
-    if delta.days >= 1:
-        return f"{delta.days}d"
-    hours = delta.seconds // 3600
-    if hours >= 1:
-        return f"{hours}h"
-    return f"{delta.seconds // 60}m"
-
-
 class LinearPanel(Panel):
     BINDINGS = [
         Binding("up", "cursor_up", "select issue", show=False),
@@ -108,8 +91,6 @@ class LinearPanel(Panel):
 
     def __init__(self) -> None:
         super().__init__()
-        self.seen = SeenState({})
-        self.integration_id = "linear"
         self.cursor = 0
 
     def _selected_issue(self) -> Issue | None:
@@ -149,7 +130,7 @@ class LinearPanel(Panel):
             byline = Text(style="dim")
             byline.append(comment.author or "someone")
             byline.append(" · ")
-            byline.append(_age(comment.created_at))
+            byline.append(age(comment.created_at))
             parts.append(Text())
             parts.append(byline)
             parts.append(Markdown(comment.body, code_theme="ansi_dark"))
@@ -164,24 +145,14 @@ class LinearPanel(Panel):
         if issue is None:
             return
         webbrowser.open(issue.url)
-        self._mark_seen(issue)
+        self.mark_seen(issue)
 
     def action_toggle_detail(self) -> None:
         super().action_toggle_detail()
         # Opening the detail pane also counts as "having looked" at the issue.
         issue = self._selected_issue()
         if issue is not None and self.detail_showing(issue):
-            self._mark_seen(issue)
-
-    def _mark_seen(self, issue: Issue) -> None:
-        self.seen.mark_seen(self.integration_id, issue)
-        try:
-            self.seen.save()
-        except (ConfigError, OSError) as error:
-            # A save failure here is cosmetic — the mark above already cleared
-            # in memory — so the panel must keep running rather than crash.
-            self.notify(str(error), severity="error")
-        self.refresh()
+            self.mark_seen(issue)
 
     def action_cursor_down(self) -> None:
         self._move(1)

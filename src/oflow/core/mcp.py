@@ -120,6 +120,49 @@ class McpClient:
         return _payload_of(_envelope_of(response), name)
 
 
+# Learned per endpoint on first use, kept for the process lifetime — see
+# McpSession, the sole owner of this cache.
+_negotiated_versions: dict[str, str] = {}
+
+
+def reset_negotiated_versions() -> None:
+    """Clear the per-endpoint negotiated-version cache. For tests only —
+    a real process keeps it for its whole lifetime."""
+    _negotiated_versions.clear()
+
+
+class McpSession:
+    """One caller's use of an MCP endpoint across a batch of calls: skips
+    the handshake once a version has been negotiated for that endpoint,
+    and retries a call exactly once — with a fresh handshake — if that
+    optimism turns out wrong.
+    """
+
+    def __init__(self, endpoint: str, token: str, http: httpx.Client) -> None:
+        self._endpoint = endpoint
+        negotiated = _negotiated_versions.get(endpoint)
+        self._skipped_handshake = negotiated is not None
+        self._client = McpClient(endpoint, token, http, version=negotiated)
+        if not self._skipped_handshake:
+            self._client.initialize()
+            _negotiated_versions[endpoint] = self._client.version
+
+    def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._client.call_tool(name, arguments)
+        except (Malformed, Unavailable):
+            if not self._skipped_handshake:
+                raise
+            # The skipped handshake may itself be the failure; pay for a full
+            # one and retry once. AuthExpired is deliberately not recovered:
+            # a rejected token is not something a handshake can fix.
+            _negotiated_versions.pop(self._endpoint, None)
+            self._skipped_handshake = False
+            self._client.initialize()
+            _negotiated_versions[self._endpoint] = self._client.version
+            return self._client.call_tool(name, arguments)
+
+
 def _require_private_transport(endpoint: str) -> None:
     """Refuse to send a bearer token anywhere it could be read in transit.
 

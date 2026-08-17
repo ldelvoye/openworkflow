@@ -18,7 +18,9 @@ from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
 
+from oflow.core.config import ConfigError
 from oflow.core.contract import Item
+from oflow.core.state import SeenState
 
 
 def _scroll_indicators(scroll_y: float, max_scroll_y: float) -> tuple[bool, bool]:
@@ -127,6 +129,11 @@ class Panel(Vertical):
         self.items: tuple[Item, ...] = ()
         self.message = ""
         self.as_of: datetime | None = None
+        # Set for real once the shell knows which integration owns this tab
+        # (see OflowApp._panel_for/on_mount) — empty/unloaded defaults here
+        # only so a bare Panel() is never missing the attributes outright.
+        self.seen = SeenState({})
+        self.integration_id = ""
         self.detail_open = False
         self._detail_target: tuple[str, str] | None = None
         self._detail_pending: tuple[str, str] | None = None
@@ -167,6 +174,19 @@ class Panel(Vertical):
         this item — the "having looked at it" signal an integration's own
         seen-marking hooks into, without reaching into `_detail_target`."""
         return self.detail_open and self._detail_target == self.detail_key(item)
+
+    def mark_seen(self, item: Item) -> None:
+        """Mark `item` seen and persist it.
+
+        A save failure notifies instead of crashing — the mark above already
+        took effect in memory, so the panel keeps running either way.
+        """
+        self.seen.mark_seen(self.integration_id, item)
+        try:
+            self.seen.save()
+        except (ConfigError, OSError) as error:
+            self.notify(str(error), severity="error")
+        self.refresh()
 
     def action_toggle_detail(self) -> None:
         item = self.selected_item()

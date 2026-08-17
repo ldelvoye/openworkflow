@@ -124,21 +124,17 @@ class OflowApp(App[None]):
             panel = Panel()
             panel.state = PanelState.ERROR
             panel.message = f"{integration_id} is not supported by this build"
+            panel.integration_id = integration_id
             return panel
-        return integration.panel_class()
+        panel = integration.panel_class()
+        panel.integration_id = integration_id
+        return panel
 
     def on_mount(self) -> None:
-        """Load the seen-state once and hand it to every panel that tracks it.
-
-        A panel with no such attribute (the base Panel) is left alone.
-        """
+        """Load the seen-state once and hand it to every panel."""
         self.seen = SeenState.load()
         for panel in self.query(Panel):
-            if hasattr(panel, "seen"):
-                # setattr rather than a direct assignment: the base Panel type
-                # does not declare `seen`, so a direct `panel.seen = ...` does
-                # not type-check against it.
-                setattr(panel, "seen", self.seen)  # noqa: B010
+            panel.seen = self.seen
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Fetch the newly active tab and focus its panel.
