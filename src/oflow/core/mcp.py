@@ -25,9 +25,9 @@ import httpx
 from oflow.core.contract import AuthExpired, Malformed, Unavailable
 from oflow.core.text import printable
 
-# What we ask for. Deliberately a version we have verified rather than the newest
-# published one: a server that does not recognise the requested version may reject
-# the request outright instead of negotiating down, so optimism breaks connections.
+# A version we have verified, not the newest published one — a server that
+# doesn't recognise the requested version may reject it outright rather
+# than negotiate down, so optimism breaks connections.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
 # Revisions this client's request shape actually works against. Anything
@@ -42,12 +42,23 @@ LOOPBACK_HOSTS = frozenset[str]({"127.0.0.1", "::1"})
 
 
 class McpClient:
-    def __init__(self, endpoint: str, token: str, http: httpx.Client) -> None:
+    def __init__(
+        self,
+        endpoint: str,
+        token: str,
+        http: httpx.Client,
+        version: str | None = None,
+    ) -> None:
         _require_private_transport(endpoint)
         self._endpoint = endpoint
         self._token = token
         self._http = http
-        self._version = MCP_PROTOCOL_VERSION
+        self._version = version or MCP_PROTOCOL_VERSION
+
+    @property
+    def version(self) -> str:
+        """Protocol revision used in requests; initialize() updates it per server negotiation."""
+        return self._version
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -109,16 +120,57 @@ class McpClient:
         return _payload_of(_envelope_of(response), name)
 
 
+# Learned per endpoint on first use, kept for the process lifetime — see
+# McpSession, the sole owner of this cache.
+_negotiated_versions: dict[str, str] = {}
+
+
+def reset_negotiated_versions() -> None:
+    """Clear the per-endpoint negotiated-version cache. For tests only —
+    a real process keeps it for its whole lifetime."""
+    _negotiated_versions.clear()
+
+
+class McpSession:
+    """One caller's use of an MCP endpoint across a batch of calls: skips
+    the handshake once a version has been negotiated for that endpoint,
+    and retries a call exactly once — with a fresh handshake — if that
+    optimism turns out wrong.
+    """
+
+    def __init__(self, endpoint: str, token: str, http: httpx.Client) -> None:
+        self._endpoint = endpoint
+        negotiated = _negotiated_versions.get(endpoint)
+        self._skipped_handshake = negotiated is not None
+        self._client = McpClient(endpoint, token, http, version=negotiated)
+        if not self._skipped_handshake:
+            self._client.initialize()
+            _negotiated_versions[endpoint] = self._client.version
+
+    def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self._client.call_tool(name, arguments)
+        except (Malformed, Unavailable):
+            if not self._skipped_handshake:
+                raise
+            # The skipped handshake may itself be the failure; pay for a full
+            # one and retry once. AuthExpired is deliberately not recovered:
+            # a rejected token is not something a handshake can fix.
+            _negotiated_versions.pop(self._endpoint, None)
+            self._skipped_handshake = False
+            self._client.initialize()
+            _negotiated_versions[self._endpoint] = self._client.version
+            return self._client.call_tool(name, arguments)
+
+
 def _require_private_transport(endpoint: str) -> None:
     """Refuse to send a bearer token anywhere it could be read in transit.
 
-    Loopback is exempt for the same reason the OAuth redirect is: plaintext that
-    never leaves the machine is not exposed, and MCP servers are commonly run
-    locally.
+    Loopback is exempt, like the OAuth redirect: plaintext that never leaves
+    the machine isn't exposed, and MCP servers commonly run locally.
 
-    Raised as Malformed rather than Unavailable because the distinction the shell
-    acts on is whether retrying could help. A bad endpoint is permanent, and
-    showing last-good data marked stale would promise a recovery that cannot come.
+    Malformed, not Unavailable — a bad endpoint is permanent, so showing
+    last-good data marked stale would promise a recovery that can't come.
     """
     parts = urlsplit(endpoint)
     if parts.scheme == "https":

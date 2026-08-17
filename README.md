@@ -1,4 +1,4 @@
-# openworkflow
+# oflow
 
 A keyboard-driven terminal dashboard. Each integration you connect becomes a tab.
 Nothing is enabled by default.
@@ -19,4 +19,4 @@ keys, `q` quits.
 
 ## Status
 
-Pre-alpha. See `docs/ROADMAP.md` for what's ahead.
+v1.0.0. See `docs/ROADMAP.md` for what's ahead.

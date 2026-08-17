@@ -16,7 +16,9 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from oflow.auth.store import CredentialStoreError, get_credentials, now
+from oflow.auth.refresh import fresh_credentials
+from oflow.auth.store import CredentialStoreError, now
+from oflow.core.config import TabConfig
 from oflow.core.contract import (
     SHELL_KEYS,
     Action,
@@ -27,7 +29,7 @@ from oflow.core.contract import (
 )
 from oflow.core.registry import UnknownIntegration, get_integration
 from oflow.core.state import SeenState
-from oflow.shell.help import HelpOverlay, Row, Section
+from oflow.shell.help import HelpOverlay, Row, Section, merge_key_display
 from oflow.shell.panel import Panel, PanelState
 from oflow.shell.terminal_palette import TerminalPalette
 
@@ -43,7 +45,7 @@ def _rows_from_bindings(app: App[None], bindings: Iterable[object]) -> list[Row]
             continue
         key = app.get_key_display(binding)
         if rows and rows[-1][1] == binding.description:
-            rows[-1] = (f"{rows[-1][0]} / {key}", binding.description)
+            rows[-1] = (merge_key_display(rows[-1][0], key), binding.description)
         else:
             rows.append((key, binding.description))
     return rows
@@ -54,12 +56,22 @@ def _rows_from_actions(app: App[None], actions: Iterable[Action]) -> list[Row]:
 
     Routed through get_key_display, same as bindings above, so a future
     action keyed by a named key (e.g. "enter") still renders consistently.
+    A manifest writes its label in whatever form reads naturally elsewhere
+    (e.g. a command palette); only here, next to lowercase binding
+    descriptions, is the leading letter lowered to match.
     """
     rows: list[Row] = []
     for action in actions:
         key = app.get_key_display(Binding(action.key, "", action.label))
-        rows.append((key, action.label))
+        rows.append((key, _lowercase_leading_letter(action.label)))
     return rows
+
+
+def _lowercase_leading_letter(text: str) -> str:
+    """Turns "Open in Linear" into "open in Linear": only the first
+    character moves, so a proper noun anywhere else in the label is never
+    touched."""
+    return text[:1].lower() + text[1:]
 
 
 class OflowApp(App[None]):
@@ -83,13 +95,14 @@ class OflowApp(App[None]):
         for shell_key in SHELL_KEYS
     ]
 
-    def __init__(self, tabs: tuple[str, ...], palette: TerminalPalette | None = None) -> None:
+    def __init__(self, tabs: tuple[TabConfig, ...], palette: TerminalPalette | None = None) -> None:
         super().__init__()
         # Adopts the terminal's own palette instead of imposing one: unlike
         # every other built-in theme, ansi-dark resolves through the terminal's
         # native ANSI colors. Named ANSI styles elsewhere depend on this being on.
         self.theme = "ansi-dark"
-        self.tab_ids = tabs
+        self.tab_ids = tuple[str, ...](tab.integration for tab in tabs)
+        self._client_ids = {tab.integration: tab.client_id for tab in tabs}
         self.empty_hint = "no tabs configured — run: oflow connect <integration>"
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
@@ -118,35 +131,28 @@ class OflowApp(App[None]):
         try:
             integration = get_integration(integration_id)
         except UnknownIntegration:
-            # A config naming an integration this build dropped still opens; the
-            # tab says so rather than the app refusing to start.
             panel = Panel()
             panel.state = PanelState.ERROR
             panel.message = f"{integration_id} is not supported by this build"
+            panel.integration_id = integration_id
             return panel
-        return integration.panel_class()
+        panel = integration.panel_class()
+        panel.integration_id = integration_id
+        return panel
 
     def on_mount(self) -> None:
-        """Load the seen-state once and hand it to every panel that tracks it.
-
-        A panel with no such attribute (the base Panel) is left alone.
-        """
+        """Load the seen-state once and hand it to every panel."""
         self.seen = SeenState.load()
         for panel in self.query(Panel):
-            if hasattr(panel, "seen"):
-                # setattr rather than a direct assignment: the base Panel type
-                # does not declare `seen`, so a direct `panel.seen = ...` does
-                # not type-check against it.
-                setattr(panel, "seen", self.seen)  # noqa: B010
+            panel.seen = self.seen
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Fetch the newly active tab and focus its panel.
 
         TabbedContent posts this for the initial pane during mount as well as
-        on every later switch, so this one handler is the sole fetch trigger —
-        an explicit on_mount() refresh alongside it would double-fetch the
-        startup tab. It doubles as the focus handoff so a panel's own arrow
-        bindings work the moment its tab becomes visible, startup included.
+        on every later switch, so this one handler is the sole fetch trigger.
+        It doubles as the focus handoff so a panel's own arrow bindings work
+        the moment its tab becomes visible, startup included.
         """
         panel = event.pane.query_one(Panel)
         self.refresh_tab(event.pane.id or "", panel)
@@ -178,14 +184,7 @@ class OflowApp(App[None]):
         self._shift_tab(-1)
 
     def action_help(self) -> None:
-        """Toggle the help overlay for the active tab.
-
-        "?" is itself a priority binding, so it is checked ahead of the modal
-        screen's own bindings even while the overlay is open — that is what
-        makes pressing it again a cheap toggle rather than a no-op. The
-        footer already shows the shell keys, so the overlay carries only the
-        active tab's integration section.
-        """
+        """Toggle the help overlay for the active tab."""
         if isinstance(self.screen, HelpOverlay):
             self.pop_screen()
             return
@@ -203,19 +202,14 @@ class OflowApp(App[None]):
             # _panel_for already put this tab in its own error state; there is
             # no manifest to draw actions from.
             action_rows = []
-        # A manifest action's label wins over a same-keyed panel binding (e.g.
-        # both declaring "o") since it is the user-facing name for that action.
+        # A manifest action's label wins over a same-keyed panel binding.
         action_keys = {key for key, _ in action_rows}
-        rows = [row for row in binding_rows if row[0] not in action_keys] + action_rows
+        unshadowed_bindings = [row for row in binding_rows if row[0] not in action_keys]
+        rows = unshadowed_bindings + action_rows
         return (active, rows)
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
-        """Yield Textual's system commands minus the ones this app doesn't offer.
-
-        Filtered by callback identity, not title, so a future Textual title
-        rename can't silently stop these from being dropped. "Keys" has two
-        possible callbacks depending on whether its panel is already open.
-        """
+        """Yield Textual's system commands minus the ones this app doesn't offer."""
         dropped = {
             self.action_change_theme,
             self.action_hide_help_panel,
@@ -229,7 +223,9 @@ class OflowApp(App[None]):
 
     def _screenshot_theme(self) -> TerminalTheme | None:
         """None preserves today's fallback: Console.export_svg's own default."""
-        return None if self._palette is None else self._palette.to_terminal_theme()
+        if self._palette is None:
+            return None
+        return self._palette.to_terminal_theme()
 
     def export_screenshot(self, *, title: str | None = None, simplify: bool = False) -> str:
         """Render the current screen to SVG using the learned terminal palette.
@@ -263,15 +259,66 @@ class OflowApp(App[None]):
         if panel is not None:
             self.refresh_tab(self.active_tab, panel, force=True)
 
+    def action_mark_all_seen(self) -> None:
+        """Clear the active tab's change marks in one stroke.
+
+        Shell-level (not a panel binding) so every future integration gets
+        it for free; a tab with nothing shown yet just marks nothing.
+        """
+        if not self.active_tab:
+            return
+        panel = self._panel_of(self.active_tab)
+        if panel is not None:
+            panel.mark_all_seen()
+
+    def on_panel_detail_requested(self, message: Panel.DetailRequested) -> None:
+        # Only the focused panel of the visible tab can post this, so the
+        # active tab names the integration that owns the item.
+        if self.active_tab:
+            self.fetch_detail(self.active_tab, message.panel, message.item)
+
+    @work(thread=True)
+    def fetch_detail(self, integration_id: str, panel: Panel, item: Item) -> None:
+        """Fetch one item's detail off the UI thread; results and errors land
+        in the panel's detail region and never touch the list's state."""
+        key = Panel.detail_key(item)
+        try:
+            integration = get_integration(integration_id)
+        except UnknownIntegration:
+            return
+        try:
+            with httpx.Client(timeout=30) as http:
+                credentials = fresh_credentials(
+                    integration_id,
+                    integration.manifest.provider,
+                    self._client_ids.get(integration_id),
+                    http,
+                )
+                if credentials is None:
+                    self.call_from_thread(panel.show_detail_error, key, "not connected")
+                    return
+                detail = integration.fetch_detail(credentials, http, item)
+        except CredentialStoreError as error:
+            self.call_from_thread(panel.show_detail_error, key, str(error))
+            return
+        except AuthExpired as error:
+            self.call_from_thread(
+                panel.show_detail_error, key, f"{error} — run: oflow connect {integration_id}"
+            )
+            return
+        except IntegrationError as error:
+            self.call_from_thread(panel.show_detail_error, key, str(error))
+            return
+        self.call_from_thread(panel.show_detail, key, detail)
+
     @work(thread=True)
     def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:
         """Fetch integration_id's items off the UI thread and hand results to panel.
 
-        panel is resolved by the caller on the UI thread and passed in rather
-        than queried here: this method's body runs off the UI thread once
-        @work(thread=True) dispatches it, and Textual widgets are not
-        thread-safe to query or mutate from anywhere but the UI thread. Every
-        mutation below still crosses back via call_from_thread.
+        panel is passed in rather than queried here since this body runs off
+        the UI thread once @work(thread=True) dispatches it, and Textual
+        widgets are not thread-safe to touch from anywhere else. Every
+        mutation below crosses back via call_from_thread.
         """
         try:
             integration = get_integration(integration_id)
@@ -286,16 +333,20 @@ class OflowApp(App[None]):
                 return
 
         try:
-            credentials = get_credentials(integration_id)
+            with httpx.Client(timeout=30) as http:
+                credentials = fresh_credentials(
+                    integration_id,
+                    integration.manifest.provider,
+                    self._client_ids.get(integration_id),
+                    http,
+                )
+                if credentials is None:
+                    self.call_from_thread(self._show_error, panel, "not connected")
+                    return
+                items = tuple[Item, ...](integration.fetch(credentials, http))
         except CredentialStoreError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
             return
-        if credentials is None:
-            self.call_from_thread(self._show_error, panel, "not connected")
-            return
-        try:
-            with httpx.Client(timeout=30) as http:
-                items = tuple[Item, ...](integration.fetch(credentials, http))
         except Malformed as error:
             # The tab itself is broken, not just momentarily unreachable — stale
             # data would promise a recovery that a shape mismatch cannot deliver.
@@ -315,6 +366,7 @@ class OflowApp(App[None]):
 
     def _show_items(self, panel: Panel, items: tuple[Item, ...]) -> None:
         panel.items = items
+        panel.prune_detail_cache()
         panel.state = PanelState.EMPTY if not items else PanelState.READY
         panel.as_of = now()
         panel.refresh(layout=True)

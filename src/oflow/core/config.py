@@ -56,10 +56,9 @@ def config_path() -> Path:
 def require_private_path(path: Path, expected_mode: int) -> None:
     """Refuse a path that is not exclusively ours.
 
-    Problems are reported rather than repaired: a silent chmod would erase the
-    only evidence that the credentials stored here had been reachable by anyone
-    else. Uses lstat so a symlink is rejected on its own terms instead of being
-    followed to whatever it points at.
+    Reports rather than repairs — a silent chmod would erase the only
+    evidence that credentials here had been reachable by someone else. Uses
+    lstat so a symlink is rejected outright rather than followed.
     """
     info = path.lstat()
     if stat.S_ISLNK(info.st_mode):
@@ -96,11 +95,11 @@ def ensure_config_dir() -> Path:
 
 
 def write_private_file(path: Path, data: str) -> None:
-    """Replace a file atomically, without ever widening the file's permissions.
+    """Replace a file atomically, without ever widening its permissions.
 
-    This is the only write path for the config directory, credentials included:
-    a laxer write here can leave a token world-readable for the width of a
-    rename. O_EXCL and fchmod are what enforce that — don't relax either.
+    The only write path for the config directory, credentials included — a
+    laxer write could leave a token world-readable for the width of a
+    rename. O_EXCL and fchmod enforce that; don't relax either.
     """
     temporary = path.with_name(path.name + ".tmp")
     temporary.unlink(missing_ok=True)
@@ -121,9 +120,10 @@ def load_config() -> Config:
         return Config()
     try:
         raw = tomllib.loads(path.read_text())
+        entries = raw.get("tabs", [])
         tabs = tuple(
             TabConfig(integration=entry["integration"], client_id=entry.get("client_id"))
-            for entry in raw.get("tabs", [])
+            for entry in entries
         )
     except (tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError) as error:
         raise MalformedConfigError(

@@ -1,12 +1,7 @@
-"""The `?` overlay: the active tab's integration key reference.
+"""The `?` overlay: the active tab's key reference.
 
-Replaces Textual's own help panel (the one listing every binding unsorted,
-reachable only through the "Keys" command palette entry — see
-OflowApp.get_system_commands, which drops it). Shell keys are not repeated
-here — the footer already shows them — so this overlay carries only the
-active tab's rows. Rows are built by the caller from live Binding/Action
-objects (see OflowApp.action_help) so this module carries no
-integration-specific knowledge; it only lays out what it is given.
+Shows only the active tab's rows — shell keys already live in the footer.
+The caller builds the rows; this module only lays out what it is given.
 """
 
 from __future__ import annotations
@@ -22,11 +17,7 @@ Section = tuple[str, list[Row]]
 
 
 class HelpOverlay(ModalScreen[None]):
-    """A bordered key reference for the active tab's integration.
-
-    With no tabs configured there is no integration to reference, so the
-    overlay shows the same connect hint the app's own empty state does.
-    """
+    """A bordered key reference; with no tabs, the app's connect hint."""
 
     DEFAULT_CSS = """
     HelpOverlay {
@@ -40,11 +31,9 @@ class HelpOverlay(ModalScreen[None]):
         max-height: 80%;
         border: round $primary;
         padding: 1 2;
-        /* Solid, not alpha: ModalScreen's own 60%-alpha backdrop resolves to
+        /* Solid, not alpha: ModalScreen's alpha backdrop resolves to
          * transparent under :ansi (alpha can't blend over ANSI colors), so
-         * this panel needs its own opaque background instead of relying on
-         * that backdrop — the same background Screen itself falls back to
-         * under :ansi.
+         * this needs its own opaque background instead.
          */
         background: $background;
         &:ansi {
@@ -54,8 +43,7 @@ class HelpOverlay(ModalScreen[None]):
 
     /* Static has no width of its own, so inside this auto-width parent it
      * falls back to filling a not-yet-known width — a circular dependency
-     * that resolves to 0 and is why the box rendered empty. An explicit auto
-     * width breaks the cycle by sizing the Static to its own content instead.
+     * that renders an empty box. Explicit auto width breaks the cycle.
      */
     HelpOverlay Static {
         width: auto;
@@ -71,9 +59,8 @@ class HelpOverlay(ModalScreen[None]):
         self._no_tabs_hint = no_tabs_hint
 
     def compose(self) -> ComposeResult:
-        # markup=False: consistent with Panel's rule for server/manifest text,
-        # even though every string rendered here is our own in-repo binding
-        # description or manifest label.
+        # markup=False: consistent with Panel's rule for server/manifest
+        # text, kept even though these strings are all our own.
         body = VerticalScroll(Static(self.body_text(), markup=False))
         body.border_title = "keys"
         yield body
@@ -89,5 +76,35 @@ class HelpOverlay(ModalScreen[None]):
 def _rendered(rows: list[Row]) -> list[str]:
     if not rows:
         return []
-    width = max(len(key) for key, _ in rows)
-    return [f"  {key.ljust(width)}  {label}" for key, label in rows]
+    keys = [symbolize_key_display(key) for key, _ in rows]
+    width = max(len(key) for key in keys)
+    return [f"  {key.ljust(width)}  {label}" for key, (_, label) in zip(keys, rows, strict=True)]
+
+
+def merge_key_display(existing: str, new: str) -> str:
+    """One row's keys, a shared modifier stated once: "shift+↑" + "shift+↓"
+    -> "shift+↑/↓"; different modifiers stay fully spelled out. Must run
+    before symbolize_key_display — factoring compares the "+"-notation.
+    """
+    existing_prefix, _, existing_base = existing.rpartition("+")
+    new_prefix, _, new_base = new.rpartition("+")
+    if existing_prefix != new_prefix:
+        return f"{existing}/{new}"
+    if not existing_prefix:
+        return f"{existing_base}/{new_base}"
+    return f"{existing_prefix}+{existing_base}/{new_base}"
+
+
+# Only shift has a binding today; add modifiers here as they appear.
+SYMBOLS = {"shift+": "⇧ + "}
+
+
+def symbolize_key_display(key: str) -> str:
+    """Modifier words become glyphs: "shift+↑/↓" -> "⇧ + ↑/↓"."""
+    parts = key.split("/")
+    for index, part in enumerate(parts):
+        for word, symbol in SYMBOLS.items():
+            if part.startswith(word):
+                parts[index] = symbol + part[len(word) :]
+                break
+    return "/".join(parts)

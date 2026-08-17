@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from oflow.core.contract import AuthExpired, Malformed, Unavailable
-from oflow.core.mcp import MCP_PROTOCOL_VERSION, McpClient
+from oflow.core.mcp import MCP_PROTOCOL_VERSION, McpClient, McpSession
 
 ENDPOINT = "https://example.invalid/mcp"
 
@@ -244,3 +244,95 @@ def test_errors_never_contain_the_token():
     with pytest.raises(Unavailable) as excinfo:
         client_for(handler).call_tool("list_issues", {})
     assert "token-abc" not in str(excinfo.value)
+
+
+def test_a_client_given_a_version_sends_it_without_initializing():
+    versions = []
+
+    def handler(request):
+        versions.append(request.headers.get("mcp-protocol-version"))
+        return tool_payload({"issues": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    client = McpClient(ENDPOINT, "token-abc", http, version="2025-06-18")
+    client.call_tool("list_issues", {})
+
+    assert versions == ["2025-06-18"]
+
+
+def test_the_version_property_reflects_what_initialize_negotiated():
+    def handler(request):
+        if json.loads(request.content)["method"] == "initialize":
+            return sse({"result": {"protocolVersion": "2025-06-18"}})
+        return httpx.Response(202)
+
+    client = client_for(handler)
+    assert client.version == MCP_PROTOCOL_VERSION
+    client.initialize()
+    assert client.version == "2025-06-18"
+
+
+def test_explicit_version_is_replaced_by_initialize():
+    """Regression: explicit version + initialize should update to negotiated version."""
+    versions = []
+
+    def handler(request):
+        versions.append(request.headers.get("mcp-protocol-version"))
+        method = json.loads(request.content)["method"]
+        if method == "initialize":
+            return sse({"result": {"protocolVersion": "2025-06-18"}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return tool_payload({"issues": []})
+
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    client = McpClient(ENDPOINT, "token-abc", http, version="2025-03-26")
+    assert client.version == "2025-03-26"
+    client.initialize()
+    assert client.version == "2025-06-18"
+    client.call_tool("list_issues", {})
+    assert versions[-1] == "2025-06-18"
+
+
+# --- McpSession: the per-endpoint handshake-skip cache ---
+#
+# The skip/retry-once behavior itself is already exercised end to end through
+# oflow.integrations.linear.source (test_linear_source.py's
+# test_the_second_fetch_skips_the_handshake and friends) — that coverage
+# isn't duplicated here. What only a direct test can show is that the cache
+# is keyed *per endpoint*, since Linear's own tests only ever use one.
+
+
+def handshake_handler(methods: list[str]):
+    def handler(request):
+        method = json.loads(request.content)["method"]
+        methods.append(method)
+        if method == "initialize":
+            return sse({"result": {"protocolVersion": MCP_PROTOCOL_VERSION}})
+        if method == "notifications/initialized":
+            return httpx.Response(202)
+        return tool_payload({"issues": []})
+
+    return handler
+
+
+def session_for(endpoint: str, handler) -> McpSession:
+    http = httpx.Client(transport=httpx.MockTransport(handler))
+    return McpSession(endpoint, "token-abc", http)
+
+
+def test_two_endpoints_negotiate_their_handshake_independently():
+    methods_a: list[str] = []
+    methods_b: list[str] = []
+
+    session_for("https://a.example/mcp", handshake_handler(methods_a)).call("list_issues", {})
+    session_for("https://b.example/mcp", handshake_handler(methods_b)).call("list_issues", {})
+
+    assert methods_a.count("initialize") == 1
+    assert methods_b.count("initialize") == 1
+
+    # Both endpoints are now warm; a fresh session against either skips its
+    # own handshake independently of the other having been warmed first.
+    methods_a_warm: list[str] = []
+    session_for("https://a.example/mcp", handshake_handler(methods_a_warm)).call("list_issues", {})
+    assert methods_a_warm.count("initialize") == 0

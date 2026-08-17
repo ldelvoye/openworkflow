@@ -126,17 +126,14 @@ def query_terminal_palette(
 ) -> TerminalPalette | None:
     """Ask the terminal for its real palette.
 
-    Must run before OflowApp exists, never once Textual's driver owns stdin:
-    it has no notion of an OSC response, so it replays one as synthetic
-    keypresses byte-by-byte — the "r" in an "rgb:" reply would fire this
-    app's refresh binding. Never raises: returns None when the palette can't
-    be learned; `timeout` bounds the wait so a silent terminal falls back
-    instead of hanging startup.
+    Must run before OflowApp exists — once Textual's driver owns stdin, it
+    would replay an OSC response as synthetic keypresses (the "r" in "rgb:"
+    would fire the refresh binding). Never raises: returns None if the
+    palette can't be learned, bounded by `timeout` so a silent terminal
+    doesn't hang startup.
 
-    `stdin`/`stdout` default to sys.stdin/sys.stdout at call time; the
-    keyword seam exists because pytest's capture manager owns those globals
-    during a test run, so exercising this path under test requires passing
-    fakes in rather than patching sys.stdin/sys.stdout.
+    `stdin`/`stdout` default to sys.stdin/sys.stdout; the keyword seam lets
+    tests pass fakes instead of patching the globals pytest's capture owns.
     """
     resolved_stdin: _TTYStream = sys.stdin if stdin is None else stdin
     resolved_stdout: _TTYStream = sys.stdout if stdout is None else stdout
@@ -146,8 +143,8 @@ def query_terminal_palette(
         import termios
         import tty
     except ImportError:
-        # Not POSIX (e.g. Windows has neither module) — no safe way to flip
-        # the tty into raw mode here, so there is nothing more to try.
+        # Not POSIX (Windows lacks both modules) — no safe way to set raw
+        # mode, so give up here.
         return None
 
     fd = resolved_stdin.fileno()

@@ -15,9 +15,9 @@ import httpx
 
 from oflow.auth.oauth import ProviderConfig
 from oflow.auth.store import Credentials
-from oflow.core.contract import Action, ActionClass, Manifest
+from oflow.core.contract import Action, ActionClass, Item, Manifest
 from oflow.integrations.linear.panel import LinearPanel
-from oflow.integrations.linear.source import Issue, fetch
+from oflow.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
 
 PROVIDER = ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
@@ -43,6 +43,9 @@ class LinearIntegration:
 
     def fetch(self, credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
         return fetch(credentials, http)
+
+    def fetch_detail(self, credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
+        return fetch_detail(credentials, http, item)
 
 
 INTEGRATION = LinearIntegration()
