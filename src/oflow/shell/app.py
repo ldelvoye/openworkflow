@@ -29,7 +29,7 @@ from oflow.core.contract import (
 )
 from oflow.core.registry import UnknownIntegration, get_integration
 from oflow.core.state import SeenState
-from oflow.shell.help import HelpOverlay, Row, Section
+from oflow.shell.help import HelpOverlay, Row, Section, merge_key_display
 from oflow.shell.panel import Panel, PanelState
 from oflow.shell.terminal_palette import TerminalPalette
 
@@ -45,7 +45,7 @@ def _rows_from_bindings(app: App[None], bindings: Iterable[object]) -> list[Row]
             continue
         key = app.get_key_display(binding)
         if rows and rows[-1][1] == binding.description:
-            rows[-1] = (f"{rows[-1][0]} / {key}", binding.description)
+            rows[-1] = (merge_key_display(rows[-1][0], key), binding.description)
         else:
             rows.append((key, binding.description))
     return rows
@@ -56,12 +56,22 @@ def _rows_from_actions(app: App[None], actions: Iterable[Action]) -> list[Row]:
 
     Routed through get_key_display, same as bindings above, so a future
     action keyed by a named key (e.g. "enter") still renders consistently.
+    A manifest writes its label in whatever form reads naturally elsewhere
+    (e.g. a command palette); only here, next to lowercase binding
+    descriptions, is the leading letter lowered to match.
     """
     rows: list[Row] = []
     for action in actions:
         key = app.get_key_display(Binding(action.key, "", action.label))
-        rows.append((key, action.label))
+        rows.append((key, _lowercase_leading_letter(action.label)))
     return rows
+
+
+def _lowercase_leading_letter(text: str) -> str:
+    """Turns "Open in Linear" into "open in Linear": only the first
+    character moves, so a proper noun anywhere else in the label is never
+    touched."""
+    return text[:1].lower() + text[1:]
 
 
 class OflowApp(App[None]):
@@ -248,6 +258,18 @@ class OflowApp(App[None]):
         panel = self._panel_of(self.active_tab)
         if panel is not None:
             self.refresh_tab(self.active_tab, panel, force=True)
+
+    def action_mark_all_seen(self) -> None:
+        """Clear the active tab's change marks in one stroke.
+
+        Shell-level (not a panel binding) so every future integration gets
+        it for free; a tab with nothing shown yet just marks nothing.
+        """
+        if not self.active_tab:
+            return
+        panel = self._panel_of(self.active_tab)
+        if panel is not None:
+            panel.mark_all_seen()
 
     def on_panel_detail_requested(self, message: Panel.DetailRequested) -> None:
         # Only the focused panel of the visible tab can post this, so the

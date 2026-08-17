@@ -188,6 +188,19 @@ class Panel(Vertical):
             self.notify(str(error), severity="error")
         self.refresh()
 
+    def mark_all_seen(self) -> None:
+        """Mark every currently-shown item seen and persist it in one stroke.
+
+        A save failure notifies instead of crashing — the marks above already
+        took effect in memory, so the panel keeps running either way.
+        """
+        self.seen.mark_all_seen(self.integration_id, self.items)
+        try:
+            self.seen.save()
+        except (ConfigError, OSError) as error:
+            self.notify(str(error), severity="error")
+        self.refresh()
+
     def action_toggle_detail(self) -> None:
         item = self.selected_item()
         if item is None:

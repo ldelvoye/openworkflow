@@ -13,7 +13,7 @@ from oflow.core.contract import SHELL_KEYS, AuthExpired, Item, Malformed, Unavai
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
-from oflow.shell.help import HelpOverlay
+from oflow.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
 from oflow.shell.panel import Panel, PanelState, _scroll_indicators
 from oflow.shell.terminal_palette import TerminalPalette
 
@@ -456,14 +456,47 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
 
     assert "linear" in text
     # The manifest-declared action (Action(id="open", label="Open in Linear",
-    # key="o", ...) in linear/manifest.py), not a hardcoded string.
-    assert _line_with(text, "Open in Linear").strip().startswith("o")
+    # key="o", ...) in linear/manifest.py) — rendered with its leading letter
+    # lowered to match the help overlay's convention, not a hardcoded string.
+    assert _line_with(text, "open in Linear").strip().startswith("o")
     # LinearPanel also binds "o" (action_open_selected, label "open in
     # browser") — the manifest's label wins, so the panel's own label for
     # that key never shows up as a second row.
     assert "open in browser" not in text
     # The panel's own up/down BINDINGS, merged onto one row (see LinearPanel.BINDINGS).
-    assert _line_with(text, "select issue").strip().startswith("↑ / ↓")
+    assert _line_with(text, "select issue").strip().startswith("↑/↓")
+
+
+def test_a_shared_modifier_is_stated_once():
+    assert merge_key_display("shift+↑", "shift+↓") == "shift+↑/↓"
+
+
+def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
+    assert merge_key_display("↑", "↓") == "↑/↓"
+
+
+def test_two_different_modifiers_stay_fully_spelled_out():
+    assert merge_key_display("ctrl+a", "shift+b") == "ctrl+a/shift+b"
+
+
+def test_a_lone_shift_binding_symbolizes_even_when_unmerged():
+    assert symbolize_key_display("shift+x") == "⇧ + x"
+
+
+@pytest.mark.asyncio
+async def test_the_scroll_rows_shared_modifier_is_stated_once_in_the_overlay():
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("?")
+        await pilot.pause()
+
+        assert isinstance(app.screen, HelpOverlay)
+        text = app.screen.body_text()
+
+    # LinearPanel's shift+up/shift+down BINDINGS (see LinearPanel.BINDINGS),
+    # merged onto one row and rendered with the shared modifier symbolized.
+    assert _line_with(text, "scroll details").strip().startswith("⇧ + ↑/↓")
 
 
 @pytest.mark.asyncio
@@ -496,7 +529,7 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
     title_line = next(line for line in rendered if line.strip() == "linear")
     assert title_line.strip() == "linear"
     select_issue_line = next(line for line in rendered if "select issue" in line)
-    assert select_issue_line.strip().startswith("↑ / ↓")
+    assert select_issue_line.strip().startswith("↑/↓")
 
 
 @pytest.mark.asyncio
@@ -784,3 +817,67 @@ def test_show_items_prunes_the_detail_cache():
     app._show_items(panel, (fresh,))
 
     assert panel.detail_key(stale) not in panel._details
+
+
+# --- Task 10: mark-all-seen key ---
+
+
+@pytest.mark.asyncio
+async def test_m_marks_every_item_in_the_active_tab_as_seen(monkeypatch):
+    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
+    issues = (issue("ENG-1"), issue("ENG-2"))
+
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        panel = app.query_one(LinearPanel)
+        assert panel.seen.is_changed("linear", issues[0]) is True
+        await pilot.press("m")
+        await pilot.pause()
+
+    assert panel.seen.is_changed("linear", issues[0]) is False
+    assert panel.seen.is_changed("linear", issues[1]) is False
+
+
+@pytest.mark.asyncio
+async def test_m_on_an_unsupported_tab_is_a_quiet_no_op():
+    # "alpha" has no registered integration, so its Panel carries no items —
+    # marking them seen is a genuine no-op, not a special case to guard.
+    app = OflowApp(tabs=(TabConfig("alpha"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+    # No exception is the assertion.
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mark_all_seen_save_notifies_instead_of_crashing(monkeypatch):
+    def refuse_save(self):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("oflow.core.state.SeenState.save", refuse_save)
+    issues = (issue("ENG-1"),)
+
+    def fake_refresh(self, integration_id, panel, force=False):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "oflow.shell.app.OflowApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+
+    assert notified == ["No space left on device"]

@@ -44,8 +44,9 @@ class ShellKey:
 # directions so the footer shows one "switch tab" entry instead of two.
 SHELL_KEYS = (
     ShellKey("shift+left", "previous_tab", "switch tab", show=False),
-    ShellKey("shift+right", "next_tab", "switch tab", key_display="⇧ + ← / ⇧ + →"),
+    ShellKey("shift+right", "next_tab", "switch tab", key_display="⇧ + ←/→"),
     ShellKey("r", "refresh", "refresh"),
+    ShellKey("m", "mark_all_seen", "mark all seen"),
     ShellKey("question_mark", "help", "help"),
     ShellKey("q", "quit", "quit"),
 )
@@ -80,6 +81,8 @@ class ActionClass(StrEnum):
 @dataclass(frozen=True)
 class Action:
     id: str
+    # Written in its natural form (e.g. "Open in Linear"); each UI surface
+    # applies its own casing convention at render time.
     label: str
     key: str
     action_class: ActionClass
