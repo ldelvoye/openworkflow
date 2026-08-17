@@ -20,13 +20,13 @@ from oflow.auth.refresh import fresh_credentials
 from oflow.auth.store import CredentialStoreError, now
 from oflow.core.config import TabConfig
 from oflow.core.contract import (
-    SHELL_KEYS,
     Action,
     AuthExpired,
     IntegrationError,
     Item,
     Malformed,
 )
+from oflow.core.keys import SHELL_KEYS
 from oflow.core.registry import UnknownIntegration, get_integration
 from oflow.core.state import SeenState
 from oflow.shell.help import HelpOverlay, Row, Section, merge_key_display
@@ -79,7 +79,7 @@ class OflowApp(App[None]):
     Screen { layout: vertical; }
     """
 
-    # Built from SHELL_KEYS (see core.contract, the single source for the
+    # Built from SHELL_KEYS (see core.keys, the single source for the
     # shell's keymap) so this list and RESERVED_KEYS cannot drift apart.
     # priority=True is checked ahead of the focused widget, so a panel cannot
     # capture these by binding the same key.

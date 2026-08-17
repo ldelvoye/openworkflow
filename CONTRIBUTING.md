@@ -74,7 +74,7 @@ not registered fails with "not supported" rather than half-working.
 - **Response shape is untrusted.** A server field that should be an object may
   be a string; that must surface as `Malformed`, never a traceback.
 - **Reserved keys can't be bound.** The shell owns its keymap
-  (`core/contract.py: RESERVED_KEYS`); a manifest binding one is rejected at
+  (`core/keys.py: RESERVED_KEYS`); a manifest binding one is rejected at
   construction.
 - **No tokens in output.** Error messages carry no credential material;
   server-controlled text is sanitized before it can reach a terminal.

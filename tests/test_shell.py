@@ -9,7 +9,8 @@ from textual.widgets import Static
 
 from oflow.auth.store import Credentials
 from oflow.core.config import TabConfig
-from oflow.core.contract import SHELL_KEYS, AuthExpired, Item, Malformed, Unavailable
+from oflow.core.contract import AuthExpired, Item, Malformed, Unavailable
+from oflow.core.keys import SHELL_KEYS
 from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
@@ -159,7 +160,7 @@ async def test_shift_right_switches_to_the_next_tab():
 
 
 def test_app_bindings_are_derived_from_shell_keys():
-    """OflowApp.BINDINGS is built from SHELL_KEYS (see core.contract); this
+    """OflowApp.BINDINGS is built from SHELL_KEYS (see core.keys); this
     pins that derivation so the two cannot drift apart again.
     """
     keys = {binding.key for binding in OflowApp.BINDINGS if isinstance(binding, Binding)}
