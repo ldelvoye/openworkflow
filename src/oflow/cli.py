@@ -37,15 +37,12 @@ def _callback_handler(
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             parsed = urllib.parse.urlparse(self.path)
-            query = {key: value[0] for key, value in urllib.parse.parse_qs(parsed.query).items()}
-            # A request that cannot prove it belongs to this login is refused
-            # without ending the wait. Otherwise any stray probe on this port
-            # consumes the callback and aborts a sign-in in progress, and a
-            # forged ?error= reads as a genuine refusal — state is the only
-            # thing distinguishing the provider's redirect from anyone else's.
-            # Compared as bytes: the str form of compare_digest rejects
-            # non-ASCII input with a TypeError, and this side of the comparison
-            # is whatever the caller sent.
+            parsed_query = urllib.parse.parse_qs(parsed.query)
+            query = {key: value[0] for key, value in parsed_query.items()}
+            # Only a request whose `state` matches this login's is accepted —
+            # a stray probe or a forged ?error= is refused without ending the
+            # wait. Compared as bytes, since compare_digest's str form raises
+            # on non-ASCII input.
             if (
                 parsed.path != "/callback"
                 or not secrets.compare_digest(
@@ -77,12 +74,10 @@ def run_login(
 ) -> tuple[str, Credentials]:
     """Register if needed, take the user through the browser, return the tokens.
 
-    The client id comes back alongside the credentials because a first login
-    mints one, and it has to be persisted so later logins reuse the registration.
-
-    Registration names a stable loopback URI while the callback listens on an
-    ephemeral port — see REGISTRATION_PORT for why a server accepts that. The
-    payoff is that nothing can bind a port it cannot predict.
+    Returns the client id alongside the credentials so a first-time
+    registration can be persisted for later logins to reuse. The callback
+    listens on an ephemeral port nothing else can predict or squat in
+    advance; see REGISTRATION_PORT for the fixed port named at registration.
     """
     verifier, challenge = oauth.make_pkce_pair()
     state = secrets.token_urlsafe(16)
@@ -168,14 +163,12 @@ def _connect(integration_id: str) -> int:
 def _warn_on_extra_scopes(integration: Integration, credentials: Credentials) -> None:
     """Say so when the provider granted more than was asked for.
 
-    A warning rather than a refusal: providers may return their whole granted
-    set regardless of the request, and every call site here is read-only. The
-    cost of an over-scoped token is that it is a bigger prize if stolen, which
-    is worth knowing before deciding to keep it — hence before the success line.
+    A warning, not a refusal — every call site here is read-only, so an
+    over-scoped token's only cost is being a bigger prize if stolen.
     """
-    extra = sorted(
-        set[str](credentials.scope.split()) - set[str](integration.manifest.provider.scopes)
-    )
+    granted = set[str](credentials.scope.split())
+    requested = set[str](integration.manifest.provider.scopes)
+    extra = sorted(granted - requested)
     if not extra:
         return
     print(
@@ -231,9 +224,9 @@ def _revoke(provider: oauth.ProviderConfig, client_id: str, credentials: Credent
 
 
 def _logout(integration_id: str) -> int:
-    # Deleting must not depend on the registry. Credentials outlive an
-    # integration dropped from a build, and requiring it here would leave them
-    # stored with no command able to remove them.
+    # Deletion must not depend on the registry — credentials can outlive an
+    # integration dropped from a build, and this is the only command that
+    # could remove them.
     integration: Integration | None = None
     unsupported = ""
     try:
@@ -251,10 +244,8 @@ def _logout(integration_id: str) -> int:
         print(unsupported, file=sys.stderr)
         return 1
 
-    tab = next(
-        (tab for tab in load_config().tabs if tab.integration == integration_id),
-        None,
-    )
+    config = load_config()
+    tab = next((tab for tab in config.tabs if tab.integration == integration_id), None)
     revoked = False
     if integration is not None and credentials is not None and tab is not None and tab.client_id:
         revoked = _revoke(integration.manifest.provider, tab.client_id, credentials)

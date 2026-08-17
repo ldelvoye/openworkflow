@@ -25,9 +25,9 @@ import httpx
 from oflow.core.contract import AuthExpired, Malformed, Unavailable
 from oflow.core.text import printable
 
-# What we ask for. Deliberately a version we have verified rather than the newest
-# published one: a server that does not recognise the requested version may reject
-# the request outright instead of negotiating down, so optimism breaks connections.
+# A version we have verified, not the newest published one — a server that
+# doesn't recognise the requested version may reject it outright rather
+# than negotiate down, so optimism breaks connections.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
 # Revisions this client's request shape actually works against. Anything
@@ -123,13 +123,11 @@ class McpClient:
 def _require_private_transport(endpoint: str) -> None:
     """Refuse to send a bearer token anywhere it could be read in transit.
 
-    Loopback is exempt for the same reason the OAuth redirect is: plaintext that
-    never leaves the machine is not exposed, and MCP servers are commonly run
-    locally.
+    Loopback is exempt, like the OAuth redirect: plaintext that never leaves
+    the machine isn't exposed, and MCP servers commonly run locally.
 
-    Raised as Malformed rather than Unavailable because the distinction the shell
-    acts on is whether retrying could help. A bad endpoint is permanent, and
-    showing last-good data marked stale would promise a recovery that cannot come.
+    Malformed, not Unavailable — a bad endpoint is permanent, so showing
+    last-good data marked stale would promise a recovery that can't come.
     """
     parts = urlsplit(endpoint)
     if parts.scheme == "https":

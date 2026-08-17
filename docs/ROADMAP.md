@@ -13,6 +13,10 @@ What's ahead, as feature sets per release. Design history lives in git;
 - Unify the panel's plain/styled render paths (with the detail-pane rework)
 - Make the help menu formatting consistent (capitalization)
 - Cache the MCP handshake per source instance instead of per refresh
+- Linear's MCP `list_issue_statuses` returns only id/type/name (measured
+  2026-08-14) — no state color or workflow position — so `_STATUS_STYLES`/
+  `_STATUS_RANKS` stay label-keyed with statusType fallbacks; if the MCP
+  surface ever exposes color/position, replace both with fetched config
 
 ## v1.0.1 — contracts and contributor docs
 
@@ -51,3 +55,9 @@ What's ahead, as feature sets per release. Design history lives in git;
 - `remote` (write) actions, behind confirmation and explicit write scopes
 - Mouse support, desktop notifications, and background polling stay excluded
   by design unless revisited
+- Attachments (e.g. Linear's GitHub PR attachments) as a possible detail-pane
+  section — requires fetching the issue's `attachments` field, which the
+  current `get_issue` call doesn't request
+- An optional config list of extra path roots for the inline-code
+  local-path-underline check, for users who run `oflow` from outside the
+  workspace root the code paths in an issue are actually relative to

@@ -40,11 +40,9 @@ class HelpOverlay(ModalScreen[None]):
         max-height: 80%;
         border: round $primary;
         padding: 1 2;
-        /* Solid, not alpha: ModalScreen's own 60%-alpha backdrop resolves to
+        /* Solid, not alpha: ModalScreen's alpha backdrop resolves to
          * transparent under :ansi (alpha can't blend over ANSI colors), so
-         * this panel needs its own opaque background instead of relying on
-         * that backdrop — the same background Screen itself falls back to
-         * under :ansi.
+         * this needs its own opaque background instead.
          */
         background: $background;
         &:ansi {
@@ -54,8 +52,7 @@ class HelpOverlay(ModalScreen[None]):
 
     /* Static has no width of its own, so inside this auto-width parent it
      * falls back to filling a not-yet-known width — a circular dependency
-     * that resolves to 0 and is why the box rendered empty. An explicit auto
-     * width breaks the cycle by sizing the Static to its own content instead.
+     * that renders an empty box. Explicit auto width breaks the cycle.
      */
     HelpOverlay Static {
         width: auto;
@@ -71,9 +68,8 @@ class HelpOverlay(ModalScreen[None]):
         self._no_tabs_hint = no_tabs_hint
 
     def compose(self) -> ComposeResult:
-        # markup=False: consistent with Panel's rule for server/manifest text,
-        # even though every string rendered here is our own in-repo binding
-        # description or manifest label.
+        # markup=False: consistent with Panel's rule for server/manifest
+        # text, kept even though these strings are all our own.
         body = VerticalScroll(Static(self.body_text(), markup=False))
         body.border_title = "keys"
         yield body

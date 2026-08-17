@@ -10,15 +10,16 @@ class UnknownIntegration(Exception):
 
 
 def _by_id() -> dict[str, Integration]:
-    # Imported per call rather than at module load so the allowlist stays a
-    # single mutable source of truth, readable by tests without reloading.
+    # Imported per call, not at module load, so tests can swap the allowlist
+    # without reloading this module.
     from oflow import integrations
 
     return {entry.manifest.id: entry for entry in integrations.INTEGRATIONS}
 
 
 def known_integration_ids() -> tuple[str, ...]:
-    return tuple[str, ...](sorted(_by_id()))
+    registry = _by_id()
+    return tuple[str, ...](sorted(registry))
 
 
 def get_integration(integration_id: str) -> Integration:

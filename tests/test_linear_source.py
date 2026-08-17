@@ -8,7 +8,13 @@ import pytest
 
 from oflow.auth.store import Credentials
 from oflow.core.contract import Malformed
-from oflow.integrations.linear.source import FIELDS, Issue, fetch
+from oflow.integrations.linear.source import (
+    COMMENT_BODY_LIMIT,
+    DESCRIPTION_LIMIT,
+    FIELDS,
+    Issue,
+    fetch,
+)
 
 PAGES = json.loads((Path(__file__).parent / "fixtures" / "linear_issues.json").read_text())
 CREDENTIALS = Credentials("token-abc", None, None, "read")
@@ -290,9 +296,190 @@ def test_comment_author_is_sanitized_at_the_source():
     assert "\x1b" not in detail.comments[-1].author
 
 
+# --- Linear's own <issue>/<user>/<project>/<document> tags are unwrapped ---
+
+
+def test_a_paired_tag_with_no_href_keeps_only_its_inner_text():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": 'See <issue id="i1">ENG-9</issue> for context.'
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == "See ENG-9 for context."
+    assert "<issue" not in detail.description
+    assert "</issue>" not in detail.description
+
+
+def test_a_paired_tag_with_an_https_href_becomes_a_markdown_link():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": 'See <issue id="i1" href="https://linear.app/x/issue/ENG-9">'
+        "ENG-9</issue> for context."
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == "See [ENG-9](https://linear.app/x/issue/ENG-9) for context."
+
+
+@pytest.mark.parametrize(
+    "href",
+    [
+        "http://linear.app/x/issue/ENG-9",  # not https
+        "javascript:alert(1)",  # not https
+        "not a url at all",  # unparseable as a real https:// URL
+    ],
+)
+def test_a_paired_tag_with_an_unusable_href_degrades_to_inner_text_only(href: str) -> None:
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": f'See <issue id="i1" href="{href}">ENG-9</issue> for context.'
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == "See ENG-9 for context."
+    assert "[ENG-9]" not in detail.description
+
+
+def test_a_self_closing_linear_tag_in_the_description_is_deleted():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": 'ping <user id="u1" href="https://linear.app/x/u1"/> now.'
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert "<user" not in detail.description
+    assert "ping" in detail.description and "now." in detail.description
+
+
+def test_a_real_html_tag_inside_a_code_fence_survives_untouched():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": "```html\n<div>hello</div>\n```"
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert "<div>hello</div>" in detail.description
+
+
+def test_comment_bodies_with_no_href_keep_only_inner_text():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["body"] = 'blocked by <issue id="i2">ENG-3</issue>'
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert detail.comments[-1].body == "blocked by ENG-3"
+    assert "<issue" not in detail.comments[-1].body
+
+
+def test_comment_bodies_with_an_https_href_get_the_same_link_rewrite():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["body"] = (
+        'blocked by <issue id="i2" href="https://linear.app/x/issue/ENG-3">ENG-3</issue>'
+    )
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert detail.comments[-1].body == "blocked by [ENG-3](https://linear.app/x/issue/ENG-3)"
+
+
+def test_a_hand_typed_reference_gains_no_link():
+    # No tag at all: a person typing "CTRL-2" themselves must never resolve
+    # to a link just because it looks like an issue identifier — only text
+    # Linear itself wrapped in a tag can become one.
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": "see CTRL-2 for the original report"
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == "see CTRL-2 for the original report"
+    assert "[CTRL-2]" not in detail.description
+
+
 def test_comments_that_are_not_a_list_are_malformed():
     with pytest.raises(Malformed):
         detail_with(detail_handler({"comments": {"comments": "nope"}}))
+
+
+# --- How many older comments were fetched but dropped past COMMENT_LIMIT ---
+
+
+def _synthetic_comments(count: int, has_next_page: bool = False) -> dict:
+    return {
+        "comments": [
+            {
+                "body": f"c{index}",
+                "createdAt": f"2026-08-{(index % 27) + 1:02d}T10:00:00.000Z",
+                "author": {"id": "u1", "name": "alice"},
+            }
+            for index in range(count)
+        ],
+        "hasNextPage": has_next_page,
+    }
+
+
+def test_hidden_comment_count_reflects_how_many_were_dropped_to_the_limit():
+    detail = detail_with(detail_handler({"comments": _synthetic_comments(8)}))
+    assert detail.hidden_comments == 3
+    assert detail.hidden_is_lower_bound is False
+
+
+def test_hidden_comment_count_is_exactly_one_for_the_shared_fixture():
+    # The shared DETAIL fixture carries 6 raw comments, one past COMMENT_LIMIT.
+    detail = detail_with(detail_handler())
+    assert detail.hidden_comments == 1
+    assert detail.hidden_is_lower_bound is False
+
+
+def test_hidden_comment_count_is_a_lower_bound_when_the_fetch_limit_is_hit():
+    detail = detail_with(detail_handler({"comments": _synthetic_comments(25)}))
+    assert detail.hidden_comments == 20
+    assert detail.hidden_is_lower_bound is True
+
+
+def test_hidden_comment_count_is_a_lower_bound_when_the_server_reports_more_pages():
+    detail = detail_with(detail_handler({"comments": _synthetic_comments(6, has_next_page=True)}))
+    assert detail.hidden_is_lower_bound is True
+
+
+def test_no_hidden_comments_when_everything_fetched_fits_the_limit():
+    detail = detail_with(detail_handler({"comments": _synthetic_comments(3)}))
+    assert detail.hidden_comments == 0
+    assert detail.hidden_is_lower_bound is False
+
+
+# --- Truncation: sanitize -> unwrap -> cap, so a cut can never dangle a tag ---
+
+
+def test_an_over_limit_description_ends_with_the_truncation_marker():
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {
+        "description": "x" * (DESCRIPTION_LIMIT + 500)
+    }
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == "x" * DESCRIPTION_LIMIT + "\n\n… (truncated)"
+
+
+def test_an_under_limit_description_is_unchanged():
+    text = "a normal description, well under the cap"
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"description": text}
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert detail.description == text
+
+
+def test_a_tag_dense_description_that_gets_capped_never_dangles_a_tag():
+    # Capping runs *after* unwrapping now, so by the time a cut lands, every
+    # real <issue>...</issue> has already collapsed to its inner text — the
+    # cut has nothing tag-shaped left to slice through. If capping still ran
+    # first (the bug), cutting the much longer raw markup at the same offset
+    # would almost certainly land mid-tag and leave a "<issue" fragment.
+    inner = "issue reference text here"
+    one_tag = f'<issue id="i" href="https://linear.app/x/issue/ENG-1">{inner}</issue> '
+    repeats = DESCRIPTION_LIMIT // (len(inner) + 1) + 100
+    dense = one_tag * repeats
+    issue = json.loads(json.dumps(DETAIL["issue"])) | {"description": dense}
+    detail = detail_with(detail_handler({"issue": issue}))
+    assert len(dense) > DESCRIPTION_LIMIT  # the raw payload itself needed capping
+    assert "<issue" not in detail.description
+    assert detail.description.endswith("\n\n… (truncated)")
+
+
+def test_an_over_limit_comment_body_gets_the_same_capping_treatment():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["body"] = "y" * (COMMENT_BODY_LIMIT + 500)
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert detail.comments[-1].body == "y" * COMMENT_BODY_LIMIT + "\n\n… (truncated)"
+
+
+def test_an_under_limit_comment_body_is_unchanged():
+    comments = json.loads(json.dumps(DETAIL["comments"]))
+    comments["comments"][0]["body"] = "short reply"
+    detail = detail_with(detail_handler({"comments": comments}))
+    assert detail.comments[-1].body == "short reply"
 
 
 def test_a_comment_without_a_body_is_malformed():

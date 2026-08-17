@@ -121,8 +121,6 @@ class OflowApp(App[None]):
         try:
             integration = get_integration(integration_id)
         except UnknownIntegration:
-            # A config naming an integration this build dropped still opens; the
-            # tab says so rather than the app refusing to start.
             panel = Panel()
             panel.state = PanelState.ERROR
             panel.message = f"{integration_id} is not supported by this build"
@@ -146,10 +144,9 @@ class OflowApp(App[None]):
         """Fetch the newly active tab and focus its panel.
 
         TabbedContent posts this for the initial pane during mount as well as
-        on every later switch, so this one handler is the sole fetch trigger —
-        an explicit on_mount() refresh alongside it would double-fetch the
-        startup tab. It doubles as the focus handoff so a panel's own arrow
-        bindings work the moment its tab becomes visible, startup included.
+        on every later switch, so this one handler is the sole fetch trigger.
+        It doubles as the focus handoff so a panel's own arrow bindings work
+        the moment its tab becomes visible, startup included.
         """
         panel = event.pane.query_one(Panel)
         self.refresh_tab(event.pane.id or "", panel)
@@ -181,14 +178,7 @@ class OflowApp(App[None]):
         self._shift_tab(-1)
 
     def action_help(self) -> None:
-        """Toggle the help overlay for the active tab.
-
-        "?" is itself a priority binding, so it is checked ahead of the modal
-        screen's own bindings even while the overlay is open — that is what
-        makes pressing it again a cheap toggle rather than a no-op. The
-        footer already shows the shell keys, so the overlay carries only the
-        active tab's integration section.
-        """
+        """Toggle the help overlay for the active tab."""
         if isinstance(self.screen, HelpOverlay):
             self.pop_screen()
             return
@@ -206,19 +196,14 @@ class OflowApp(App[None]):
             # _panel_for already put this tab in its own error state; there is
             # no manifest to draw actions from.
             action_rows = []
-        # A manifest action's label wins over a same-keyed panel binding (e.g.
-        # both declaring "o") since it is the user-facing name for that action.
+        # A manifest action's label wins over a same-keyed panel binding.
         action_keys = {key for key, _ in action_rows}
-        rows = [row for row in binding_rows if row[0] not in action_keys] + action_rows
+        unshadowed_bindings = [row for row in binding_rows if row[0] not in action_keys]
+        rows = unshadowed_bindings + action_rows
         return (active, rows)
 
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
-        """Yield Textual's system commands minus the ones this app doesn't offer.
-
-        Filtered by callback identity, not title, so a future Textual title
-        rename can't silently stop these from being dropped. "Keys" has two
-        possible callbacks depending on whether its panel is already open.
-        """
+        """Yield Textual's system commands minus the ones this app doesn't offer."""
         dropped = {
             self.action_change_theme,
             self.action_hide_help_panel,
@@ -232,7 +217,9 @@ class OflowApp(App[None]):
 
     def _screenshot_theme(self) -> TerminalTheme | None:
         """None preserves today's fallback: Console.export_svg's own default."""
-        return None if self._palette is None else self._palette.to_terminal_theme()
+        if self._palette is None:
+            return None
+        return self._palette.to_terminal_theme()
 
     def export_screenshot(self, *, title: str | None = None, simplify: bool = False) -> str:
         """Render the current screen to SVG using the learned terminal palette.
@@ -310,11 +297,10 @@ class OflowApp(App[None]):
     def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:
         """Fetch integration_id's items off the UI thread and hand results to panel.
 
-        panel is resolved by the caller on the UI thread and passed in rather
-        than queried here: this method's body runs off the UI thread once
-        @work(thread=True) dispatches it, and Textual widgets are not
-        thread-safe to query or mutate from anywhere but the UI thread. Every
-        mutation below still crosses back via call_from_thread.
+        panel is passed in rather than queried here since this body runs off
+        the UI thread once @work(thread=True) dispatches it, and Textual
+        widgets are not thread-safe to touch from anywhere else. Every
+        mutation below crosses back via call_from_thread.
         """
         try:
             integration = get_integration(integration_id)
@@ -362,6 +348,7 @@ class OflowApp(App[None]):
 
     def _show_items(self, panel: Panel, items: tuple[Item, ...]) -> None:
         panel.items = items
+        panel.prune_detail_cache()
         panel.state = PanelState.EMPTY if not items else PanelState.READY
         panel.as_of = now()
         panel.refresh(layout=True)

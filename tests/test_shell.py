@@ -14,7 +14,7 @@ from oflow.integrations.linear.panel import LinearPanel
 from oflow.integrations.linear.source import Issue
 from oflow.shell.app import OflowApp
 from oflow.shell.help import HelpOverlay
-from oflow.shell.panel import Panel, PanelState
+from oflow.shell.panel import Panel, PanelState, _scroll_indicators
 from oflow.shell.terminal_palette import TerminalPalette
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
@@ -71,6 +71,25 @@ def test_empty_and_error_never_render_alike():
     error.state = PanelState.ERROR
     error.message = "boom"
     assert empty.body_text() != error.body_text()
+
+
+# --- The detail region's scroll-position gutter ---
+
+
+def test_no_arrows_when_content_fits_without_scrolling():
+    assert _scroll_indicators(scroll_y=0, max_scroll_y=0) == (False, False)
+
+
+def test_only_the_down_arrow_shows_at_the_top_of_overflowing_content():
+    assert _scroll_indicators(scroll_y=0, max_scroll_y=10) == (False, True)
+
+
+def test_both_arrows_show_in_the_middle_of_overflowing_content():
+    assert _scroll_indicators(scroll_y=5, max_scroll_y=10) == (True, True)
+
+
+def test_only_the_up_arrow_shows_at_the_bottom_of_overflowing_content():
+    assert _scroll_indicators(scroll_y=10, max_scroll_y=10) == (True, False)
 
 
 class _PanelHarness(App[None]):
@@ -721,3 +740,47 @@ async def test_a_failed_detail_fetch_lands_in_the_region_not_the_list(monkeypatc
 
     assert panel._detail_errors[panel.detail_key(issue("ENG-1"))] == "linear is down"
     assert panel.state is PanelState.READY  # the list never notices
+
+
+# --- The detail cache is pruned as items refresh, so it cannot grow forever ---
+
+
+def test_prune_detail_cache_drops_keys_for_items_no_longer_in_the_list():
+    panel = Panel()
+    stale, fresh = item("ENG-1"), item("ENG-2")
+    panel.items = (fresh,)
+    panel._details[panel.detail_key(stale)] = "stale detail"
+    panel._detail_errors[panel.detail_key(stale)] = "stale error"
+    panel._details[panel.detail_key(fresh)] = "fresh detail"
+
+    panel.prune_detail_cache()
+
+    assert panel.detail_key(stale) not in panel._details
+    assert panel.detail_key(stale) not in panel._detail_errors
+    assert panel._details[panel.detail_key(fresh)] == "fresh detail"
+
+
+def test_prune_detail_cache_keeps_the_open_targets_entry_even_if_orphaned():
+    panel = Panel()
+    reopened = item("ENG-1")
+    panel.items = ()  # the ticket left the list entirely (or its key changed)
+    key = panel.detail_key(reopened)
+    panel.detail_open = True
+    panel._detail_target = key
+    panel._details[key] = "still on screen"
+
+    panel.prune_detail_cache()
+
+    assert panel._details[key] == "still on screen"
+
+
+def test_show_items_prunes_the_detail_cache():
+    app = OflowApp(tabs=(TabConfig("linear"),))
+    panel = Panel()
+    stale, fresh = item("ENG-1"), item("ENG-2")
+    panel.items = (stale,)
+    panel._details[panel.detail_key(stale)] = "stale detail"
+
+    app._show_items(panel, (fresh,))
+
+    assert panel.detail_key(stale) not in panel._details
