@@ -3,27 +3,10 @@
 What's ahead, as feature sets per release. Design history lives in git;
 `docs/mcp-protocol.md` remains the reference for the MCP transport strategy.
 
-## v1.0.0 — fully fledged Linear support, clean integration code
-
-- Detail pane: `enter` renders description, state, assignee, and recent
-  comments inline
-- Token refresh wired into fetching — central and lock-guarded, expiry checked
-  with a clock-skew margin; no more daily reconnects
-- Mark-all-seen key
-- Unify the panel's plain/styled render paths (with the detail-pane rework)
-- Make the help menu formatting consistent (capitalization)
-- Cache the MCP handshake per source instance instead of per refresh
-- Linear's MCP `list_issue_statuses` returns only id/type/name (measured
-  2026-08-14) — no state color or workflow position — so `_STATUS_STYLES`/
-  `_STATUS_RANKS` stay label-keyed with statusType fallbacks; if the MCP
-  surface ever exposes color/position, replace both with fetched config
-
 ## v1.0.1 — contracts and contributor docs
 
 - Split `ShellKey` and the shell key table out of `contract.py` into their own
   contract module
-- Integration-authoring guide: the barebones requirements for adding an
-  integration, written to double as an agentic implementation guide
 
 ## v1.1.0 — palette feature set
 
@@ -47,7 +30,7 @@ What's ahead, as feature sets per release. Design history lives in git;
 
 - PATH setup: when `oflow` is not on PATH, prompt the user and set it up
 - Publish to PyPI so `uvx oflow` works
-- `CONTRIBUTING.md` and `SECURITY.md`
+- `SECURITY.md`
 
 ## Later, deliberately unscheduled
 

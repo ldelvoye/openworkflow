@@ -19,4 +19,4 @@ keys, `q` quits.
 
 ## Status
 
-Pre-alpha. See `docs/ROADMAP.md` for what's ahead.
+v1.0.0. See `docs/ROADMAP.md` for what's ahead.
