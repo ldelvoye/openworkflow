@@ -3,11 +3,6 @@
 What's ahead, as feature sets per release. Design history lives in git;
 `docs/mcp-protocol.md` remains the reference for the MCP transport strategy.
 
-## v1.0.1 — contracts and contributor docs
-
-- Split `ShellKey` and the shell key table out of `contract.py` into their own
-  contract module
-
 ## v1.1.0 — palette feature set
 
 - Index integrations at startup (each integration exposes its auth methods
@@ -29,7 +24,7 @@ What's ahead, as feature sets per release. Design history lives in git;
 ## v1.2.0 — setup and open-source release
 
 - PATH setup: when `oflow` is not on PATH, prompt the user and set it up
-- Publish to PyPI so `uvx oflow` works
+- Publish to PyPI so `uvx smorg` works
 - `SECURITY.md`
 
 ## Later, deliberately unscheduled
@@ -42,5 +37,5 @@ What's ahead, as feature sets per release. Design history lives in git;
   section — requires fetching the issue's `attachments` field, which the
   current `get_issue` call doesn't request
 - An optional config list of extra path roots for the inline-code
-  local-path-underline check, for users who run `oflow` from outside the
+  local-path-underline check, for users who run `smorg` from outside the
   workspace root the code paths in an issue are actually relative to
