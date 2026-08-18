@@ -109,3 +109,5 @@ not registered fails with "not supported" rather than half-working.
 3. Four gates green (see Setup above).
 4. Commit `chore: release vX.Y.Z`, tag `vX.Y.Z` on that commit, then push the
    branch and the tag.
+5. `gh release create vX.Y.Z --latest --notes "..."` — a bare tag never shows
+   under GitHub's Releases, only a release does.

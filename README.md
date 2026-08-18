@@ -1,7 +1,14 @@
 # smorg
 
-A keyboard-driven terminal dashboard. Each integration you connect becomes a tab.
-Nothing is enabled by default.
+Short for [Smorgasbord](https://en.wikipedia.org/wiki/Smorgasbord): a table
+laid out with many dishes, everyone taking what they want.
+
+smorg is that table for your work — a keyboard-driven terminal dashboard with
+one tab per connected integration, showing what's on your plate and what
+changed since you last looked. It reads and opens things, never writes; it
+refreshes when you look at it, not on a timer. Nothing is enabled by default,
+and anyone can bring a dish: an integration is one directory and one registry
+line.
 
 ## Install
 
@@ -19,4 +26,5 @@ keys, `q` quits.
 
 ## Status
 
-v1.0.0. See `docs/ROADMAP.md` for what's ahead.
+Linear is the first dish. See [docs/ROADMAP.md](docs/ROADMAP.md) for what's
+ahead.
