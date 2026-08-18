@@ -1,4 +1,4 @@
-from oflow.core.text import capped, printable, printable_block
+from smorg.core.text import capped, printable, printable_block
 
 
 def test_printable_block_keeps_newlines_and_strips_escapes():

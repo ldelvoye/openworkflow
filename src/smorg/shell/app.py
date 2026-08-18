@@ -16,22 +16,22 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from oflow.auth.refresh import fresh_credentials
-from oflow.auth.store import CredentialStoreError, now
-from oflow.core.config import TabConfig
-from oflow.core.contract import (
-    SHELL_KEYS,
+from smorg.auth.refresh import fresh_credentials
+from smorg.auth.store import CredentialStoreError, now
+from smorg.core.config import TabConfig
+from smorg.core.contract import (
     Action,
     AuthExpired,
     IntegrationError,
     Item,
     Malformed,
 )
-from oflow.core.registry import UnknownIntegration, get_integration
-from oflow.core.state import SeenState
-from oflow.shell.help import HelpOverlay, Row, Section, merge_key_display
-from oflow.shell.panel import Panel, PanelState
-from oflow.shell.terminal_palette import TerminalPalette
+from smorg.core.keys import SHELL_KEYS
+from smorg.core.registry import UnknownIntegration, get_integration
+from smorg.core.state import SeenState
+from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display
+from smorg.shell.panel import Panel, PanelState
+from smorg.shell.terminal_palette import TerminalPalette
 
 
 def _rows_from_bindings(app: App[None], bindings: Iterable[object]) -> list[Row]:
@@ -74,12 +74,12 @@ def _lowercase_leading_letter(text: str) -> str:
     return text[:1].lower() + text[1:]
 
 
-class OflowApp(App[None]):
+class SmorgApp(App[None]):
     CSS = """
     Screen { layout: vertical; }
     """
 
-    # Built from SHELL_KEYS (see core.contract, the single source for the
+    # Built from SHELL_KEYS (see core.keys, the single source for the
     # shell's keymap) so this list and RESERVED_KEYS cannot drift apart.
     # priority=True is checked ahead of the focused widget, so a panel cannot
     # capture these by binding the same key.
@@ -103,7 +103,7 @@ class OflowApp(App[None]):
         self.theme = "ansi-dark"
         self.tab_ids = tuple[str, ...](tab.integration for tab in tabs)
         self._client_ids = {tab.integration: tab.client_id for tab in tabs}
-        self.empty_hint = "no tabs configured — run: oflow connect <integration>"
+        self.empty_hint = "no tabs configured — run: smorg connect <integration>"
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
         # Learned before this app existed (see cli._run) — None if the
@@ -303,7 +303,7 @@ class OflowApp(App[None]):
             return
         except AuthExpired as error:
             self.call_from_thread(
-                panel.show_detail_error, key, f"{error} — run: oflow connect {integration_id}"
+                panel.show_detail_error, key, f"{error} — run: smorg connect {integration_id}"
             )
             return
         except IntegrationError as error:
@@ -354,7 +354,7 @@ class OflowApp(App[None]):
             return
         except AuthExpired as error:
             self.call_from_thread(
-                self._show_error, panel, f"{error} — run: oflow connect {integration_id}"
+                self._show_error, panel, f"{error} — run: smorg connect {integration_id}"
             )
             return
         except IntegrationError as error:

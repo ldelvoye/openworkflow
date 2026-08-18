@@ -20,7 +20,7 @@ from pathlib import Path
 import keyring
 from keyring.errors import KeyringError, PasswordDeleteError
 
-from oflow.core.config import (
+from smorg.core.config import (
     FILE_MODE,
     ConfigPermissionError,
     config_dir,
@@ -42,8 +42,8 @@ __all__ = [
     "set_credentials",
 ]
 
-STORE_ENV = "OFLOW_CREDENTIAL_STORE"
-SERVICE = "oflow"
+STORE_ENV = "SMORG_CREDENTIAL_STORE"
+SERVICE = "smorg"
 
 # One integration's credentials as they are serialised. The store on disk is a
 # mapping of integration id to one of these.
@@ -129,7 +129,7 @@ def _from_dict(raw: StoredCredential) -> Credentials:
         )
     except (KeyError, TypeError, ValueError) as error:
         raise MalformedCredentialsError(
-            f"stored credentials are unreadable ({error}); re-run oflow connect"
+            f"stored credentials are unreadable ({error}); re-run smorg connect"
         ) from error
 
 
@@ -200,7 +200,7 @@ class _KeyringStore:
             decoded = json.loads(stored)
         except ValueError as error:
             raise MalformedCredentialsError(
-                f"keychain entry for {integration_id} is not valid JSON; re-run oflow connect"
+                f"keychain entry for {integration_id} is not valid JSON; re-run smorg connect"
             ) from error
         return _from_dict(decoded)
 
@@ -236,7 +236,7 @@ def _require_secure_backend() -> None:
     if name not in SECURE_BACKENDS:
         raise InsecureBackendError(
             f"refusing to store tokens in {name}, which is not a known-secure keyring "
-            f"backend. Set OFLOW_CREDENTIAL_STORE=file to use a 0600 file instead."
+            f"backend. Set SMORG_CREDENTIAL_STORE=file to use a 0600 file instead."
         )
 
 

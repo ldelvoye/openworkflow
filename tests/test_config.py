@@ -1,6 +1,6 @@
 import pytest
 
-from oflow.core.config import (
+from smorg.core.config import (
     Config,
     ConfigPermissionError,
     MalformedConfigError,
@@ -15,7 +15,7 @@ from oflow.core.config import (
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
 
 
 def test_config_dir_honours_env(tmp_path):

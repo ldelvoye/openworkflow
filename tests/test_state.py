@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from oflow.core.contract import Item
-from oflow.core.state import SeenState, state_path
+from smorg.core.contract import Item
+from smorg.core.state import SeenState, state_path
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -15,7 +15,7 @@ def item(identifier: str = "ENG-1", updated_at: datetime = NOW) -> Item:
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
 
 
 def test_an_unseen_item_is_changed():

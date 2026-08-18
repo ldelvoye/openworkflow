@@ -18,7 +18,7 @@ from urllib.parse import urlencode, urlsplit
 
 import httpx
 
-from oflow.auth.store import Credentials, now
+from smorg.auth.store import Credentials, now
 
 # A decoded JSON response body. Values stay Any because the wire format is the
 # server's to choose; every field this module reads is validated where it is used.
@@ -259,7 +259,7 @@ def refresh_credentials(
     credentials: Credentials,
 ) -> Credentials:
     if credentials.refresh_token is None:
-        raise OAuthError("no refresh token available; re-run oflow connect")
+        raise OAuthError("no refresh token available; re-run smorg connect")
     payload = _post_token(
         client,
         metadata,

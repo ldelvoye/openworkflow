@@ -4,9 +4,9 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from oflow.auth.oauth import ProviderConfig
-from oflow.auth.store import Credentials
-from oflow.core.contract import (
+from smorg.auth.oauth import ProviderConfig
+from smorg.auth.store import Credentials
+from smorg.core.contract import (
     Action,
     ActionClass,
     AuthExpired,
@@ -16,13 +16,13 @@ from oflow.core.contract import (
     Manifest,
     Unavailable,
 )
-from oflow.core.registry import UnknownIntegration, get_integration, known_integration_ids
-from oflow.shell.panel import Panel
+from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
+from smorg.shell.panel import Panel
 
 PROVIDER = ProviderConfig(
     metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
-    client_name="oflow",
+    client_name="smorg",
 )
 
 
@@ -55,7 +55,7 @@ class FakeIntegration:
 def registered(monkeypatch):
     def register(*manifests: Manifest):
         integrations = tuple(FakeIntegration(manifest=entry) for entry in manifests)
-        monkeypatch.setattr("oflow.integrations.INTEGRATIONS", integrations)
+        monkeypatch.setattr("smorg.integrations.INTEGRATIONS", integrations)
         return integrations
 
     return register

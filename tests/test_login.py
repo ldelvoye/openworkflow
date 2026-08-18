@@ -13,14 +13,14 @@ from pathlib import Path
 import httpx
 import pytest
 
-from oflow.auth import oauth
-from oflow.cli import run_login
+from smorg.auth import oauth
+from smorg.cli import run_login
 
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
 PROVIDER = oauth.ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
     scopes=("read",),
-    client_name="oflow",
+    client_name="smorg",
 )
 TOKEN = {"access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "scope": "read"}
 
@@ -64,7 +64,7 @@ def browser_sending(monkeypatch, *paths: str) -> None:
         threading.Thread(target=deliver, daemon=True).start()
         return True
 
-    monkeypatch.setattr("oflow.cli.webbrowser.open", fake_open)
+    monkeypatch.setattr("smorg.cli.webbrowser.open", fake_open)
 
 
 def test_login_returns_the_client_id_and_credentials(monkeypatch):

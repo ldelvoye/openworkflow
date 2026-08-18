@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from oflow.auth.store import now
+from smorg.auth.store import now
 
 
 def age(moment: datetime) -> str:

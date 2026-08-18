@@ -7,15 +7,16 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Static
 
-from oflow.auth.store import Credentials
-from oflow.core.config import TabConfig
-from oflow.core.contract import SHELL_KEYS, AuthExpired, Item, Malformed, Unavailable
-from oflow.integrations.linear.panel import LinearPanel
-from oflow.integrations.linear.source import Issue
-from oflow.shell.app import OflowApp
-from oflow.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
-from oflow.shell.panel import Panel, PanelState, _scroll_indicators
-from oflow.shell.terminal_palette import TerminalPalette
+from smorg.auth.store import Credentials
+from smorg.core.config import TabConfig
+from smorg.core.contract import AuthExpired, Item, Malformed, Unavailable
+from smorg.core.keys import SHELL_KEYS
+from smorg.integrations.linear.panel import LinearPanel
+from smorg.integrations.linear.source import Issue
+from smorg.shell.app import SmorgApp
+from smorg.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
+from smorg.shell.panel import Panel, PanelState, _scroll_indicators
+from smorg.shell.terminal_palette import TerminalPalette
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 CREDENTIALS = Credentials("token-abc", None, None, "read")
@@ -23,8 +24,8 @@ CREDENTIALS = Credentials("token-abc", None, None, "read")
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.setenv("OFLOW_CREDENTIAL_STORE", "file")
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CREDENTIAL_STORE", "file")
 
 
 def item(identifier: str = "ENG-1") -> Item:
@@ -123,7 +124,7 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
     the flag that keeps named ANSI colors (e.g. CHANGE_STYLE) from being
     approximated to RGB.
     """
-    app = OflowApp(tabs=(TabConfig("alpha"),))
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test():
         assert app.theme == "ansi-dark"
         assert app.native_ansi_color is True
@@ -131,7 +132,7 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
 
 @pytest.mark.asyncio
 async def test_an_empty_app_renders_the_connect_hint():
-    app = OflowApp(tabs=())
+    app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
         await pilot.pause()
         static = app.query_one(Static)
@@ -141,17 +142,8 @@ async def test_an_empty_app_renders_the_connect_hint():
 
 
 @pytest.mark.asyncio
-async def test_q_quits():
-    app = OflowApp(tabs=(TabConfig("alpha"),))
-    async with app.run_test() as pilot:
-        await pilot.press("q")
-        await pilot.pause()
-    assert not app.is_running
-
-
-@pytest.mark.asyncio
 async def test_shift_right_switches_to_the_next_tab():
-    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
     async with app.run_test() as pilot:
         assert app.active_tab == "alpha"
         await pilot.press("shift+right")
@@ -159,10 +151,10 @@ async def test_shift_right_switches_to_the_next_tab():
 
 
 def test_app_bindings_are_derived_from_shell_keys():
-    """OflowApp.BINDINGS is built from SHELL_KEYS (see core.contract); this
+    """SmorgApp.BINDINGS is built from SHELL_KEYS (see core.keys); this
     pins that derivation so the two cannot drift apart again.
     """
-    keys = {binding.key for binding in OflowApp.BINDINGS if isinstance(binding, Binding)}
+    keys = {binding.key for binding in SmorgApp.BINDINGS if isinstance(binding, Binding)}
     assert keys == {shell_key.key for shell_key in SHELL_KEYS}
 
 
@@ -173,10 +165,10 @@ def test_app_bindings_are_derived_from_shell_keys():
 async def test_only_the_visible_tab_fetches_on_startup(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.refresh_tab",
+        "smorg.shell.app.SmorgApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test():
+    async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test():
         pass
     assert fetched == ["alpha"]
 
@@ -185,10 +177,10 @@ async def test_only_the_visible_tab_fetches_on_startup(monkeypatch):
 async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
     fetched: list[tuple[str, bool]] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.refresh_tab",
+        "smorg.shell.app.SmorgApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
     )
-    async with OflowApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
+    async with SmorgApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
         await pilot.press("r")
     assert fetched == [("alpha", True)]
@@ -198,10 +190,10 @@ async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
 async def test_switching_to_a_tab_fetches_it(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.refresh_tab",
+        "smorg.shell.app.SmorgApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
+    async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         fetched.clear()
         await pilot.press("shift+right")
     assert fetched == ["beta"]
@@ -226,7 +218,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
         lambda self, *args, **kwargs: scheduled.append("timer"),
     )
 
-    async with OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
+    async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         await pilot.press("shift+right")
         await pilot.app.workers.wait_for_complete()
 
@@ -235,7 +227,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refreshing_an_unsupported_tab_leaves_its_error_state_alone():
-    app = OflowApp(tabs=(TabConfig("alpha"),))
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         await pilot.press("r")
@@ -250,10 +242,10 @@ async def test_refreshing_an_unsupported_tab_leaves_its_error_state_alone():
 async def test_app_regaining_focus_refreshes_the_active_tab(monkeypatch):
     fetched: list[str] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.refresh_tab",
+        "smorg.shell.app.SmorgApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append(integration_id),
     )
-    async with OflowApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
+    async with SmorgApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
         pilot.app.post_message(events.AppFocus())
         await pilot.pause()
@@ -269,9 +261,9 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
         panel.items = issues
         panel.state = PanelState.READY
 
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
         await pilot.press("shift+right")
         await pilot.pause()
@@ -293,9 +285,9 @@ async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
         panel.items = issues
         panel.state = PanelState.READY
 
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
+    app = SmorgApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
     async with app.run_test() as pilot:
         await pilot.pause()
         assert app.active_tab == "linear"
@@ -311,7 +303,7 @@ async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_the_app_injects_its_seen_state_into_every_panel_that_tracks_it():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -327,16 +319,16 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
     issues = (issue("ENG-1"), issue("ENG-2"))
     opened: list[str] = []
     monkeypatch.setattr(
-        "oflow.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
+        "smorg.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
     )
 
     def fake_refresh(self, integration_id, panel, force=False):
         panel.items = issues
         panel.state = PanelState.READY
 
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
 
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -366,7 +358,7 @@ class _RaisingIntegration:
 
 def _stub_credentials(monkeypatch) -> None:
     monkeypatch.setattr(
-        "oflow.shell.app.fresh_credentials",
+        "smorg.shell.app.fresh_credentials",
         lambda integration_id, provider, client_id, http: CREDENTIALS,
     )
 
@@ -375,11 +367,11 @@ def _stub_credentials(monkeypatch) -> None:
 async def test_malformed_is_always_error_even_when_items_exist(monkeypatch):
     _stub_credentials(monkeypatch)
     monkeypatch.setattr(
-        "oflow.shell.app.get_integration",
+        "smorg.shell.app.get_integration",
         lambda integration_id: _RaisingIntegration(Malformed("issue shape changed")),
     )
 
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -395,11 +387,11 @@ async def test_malformed_is_always_error_even_when_items_exist(monkeypatch):
 async def test_auth_expired_is_always_error_with_a_reconnect_hint(monkeypatch):
     _stub_credentials(monkeypatch)
     monkeypatch.setattr(
-        "oflow.shell.app.get_integration",
+        "smorg.shell.app.get_integration",
         lambda integration_id: _RaisingIntegration(AuthExpired("token rejected")),
     )
 
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -408,18 +400,18 @@ async def test_auth_expired_is_always_error_with_a_reconnect_hint(monkeypatch):
         await pilot.app.workers.wait_for_complete()
 
     assert panel.state is PanelState.ERROR
-    assert "run: oflow connect linear" in panel.message
+    assert "run: smorg connect linear" in panel.message
 
 
 @pytest.mark.asyncio
 async def test_unavailable_keeps_stale_items_but_errors_when_empty(monkeypatch):
     _stub_credentials(monkeypatch)
     monkeypatch.setattr(
-        "oflow.shell.app.get_integration",
+        "smorg.shell.app.get_integration",
         lambda integration_id: _RaisingIntegration(Unavailable("linear is down")),
     )
 
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
@@ -445,7 +437,7 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
     the active tab's section: title = integration id, rows from the panel's
     own BINDINGS plus the manifest's actions, deduped by key.
     """
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -485,7 +477,7 @@ def test_a_lone_shift_binding_symbolizes_even_when_unmerged():
 
 @pytest.mark.asyncio
 async def test_the_scroll_rows_shared_modifier_is_stated_once_in_the_overlay():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -510,7 +502,7 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
     lines instead, with a floor tied to the real content rather than an
     arbitrary constant.
     """
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -534,7 +526,7 @@ async def test_help_overlay_content_is_actually_rendered_at_a_real_size():
 
 @pytest.mark.asyncio
 async def test_escape_closes_the_help_overlay():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -549,7 +541,7 @@ async def test_escape_closes_the_help_overlay():
 
 @pytest.mark.asyncio
 async def test_question_mark_again_also_closes_the_overlay():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -566,10 +558,10 @@ async def test_question_mark_again_also_closes_the_overlay():
 async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
     fetched: list[tuple[str, bool]] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.refresh_tab",
+        "smorg.shell.app.SmorgApp.refresh_tab",
         lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
     )
-    app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -587,7 +579,7 @@ async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_no_tabs_help_overlay_shows_the_connect_hint():
-    app = OflowApp(tabs=())
+    app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -606,7 +598,7 @@ async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_cr
     # "alpha" has no integration (see _panel_for's UnknownIntegration handling
     # elsewhere in this file); _help_tab_section's own except UnknownIntegration
     # branch must produce an empty tab section rather than raising.
-    app = OflowApp(tabs=(TabConfig("alpha"),))
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("?")
@@ -623,7 +615,7 @@ async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_cr
 
 @pytest.mark.asyncio
 async def test_system_commands_drop_maximize_and_theme_but_keep_the_rest():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         screen = pilot.app.screen
@@ -660,7 +652,7 @@ PALETTE = TerminalPalette(
 
 @pytest.mark.asyncio
 async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
-    app = OflowApp(tabs=(TabConfig("linear"),), palette=PALETTE)
+    app = SmorgApp(tabs=(TabConfig("linear"),), palette=PALETTE)
     async with app.run_test() as pilot:
         await pilot.pause()
         svg = app.export_screenshot()
@@ -671,7 +663,7 @@ async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
 
 @pytest.mark.asyncio
 async def test_screenshot_without_a_palette_keeps_the_current_fallback_mapping():
-    app = OflowApp(tabs=(TabConfig("linear"),))  # no palette — the query found nothing
+    app = SmorgApp(tabs=(TabConfig("linear"),))  # no palette — the query found nothing
     async with app.run_test() as pilot:
         await pilot.pause()
         svg = app.export_screenshot()
@@ -692,8 +684,8 @@ async def test_the_tab_client_id_reaches_the_refresh_layer(monkeypatch):
         seen.append((integration_id, client_id))
         return None
 
-    monkeypatch.setattr("oflow.shell.app.fresh_credentials", fake_fresh)
-    app = OflowApp(tabs=(TabConfig("linear", client_id="client-42"),))
+    monkeypatch.setattr("smorg.shell.app.fresh_credentials", fake_fresh)
+    app = SmorgApp(tabs=(TabConfig("linear", client_id="client-42"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
 
@@ -705,14 +697,14 @@ async def test_a_failed_refresh_shows_the_reconnect_hint(monkeypatch):
     def fake_fresh(integration_id, provider, client_id, http):
         raise AuthExpired("token refresh failed (invalid_grant)")
 
-    monkeypatch.setattr("oflow.shell.app.fresh_credentials", fake_fresh)
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    monkeypatch.setattr("smorg.shell.app.fresh_credentials", fake_fresh)
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(Panel)
 
     assert panel.state is PanelState.ERROR
-    assert "run: oflow connect linear" in panel.message
+    assert "run: smorg connect linear" in panel.message
 
 
 # --- Task 9: the shell brokers detail fetches ---
@@ -734,9 +726,9 @@ class _DetailIntegration:
 async def test_a_detail_request_round_trips_through_the_worker(monkeypatch):
     _stub_credentials(monkeypatch)
     monkeypatch.setattr(
-        "oflow.shell.app.get_integration", lambda integration_id: _DetailIntegration()
+        "smorg.shell.app.get_integration", lambda integration_id: _DetailIntegration()
     )
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(LinearPanel)
@@ -759,8 +751,8 @@ async def test_a_failed_detail_fetch_lands_in_the_region_not_the_list(monkeypatc
         def fetch_detail(self, credentials, http, item):
             raise Unavailable("linear is down")
 
-    monkeypatch.setattr("oflow.shell.app.get_integration", lambda integration_id: _FailingDetail())
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    monkeypatch.setattr("smorg.shell.app.get_integration", lambda integration_id: _FailingDetail())
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
         panel = app.query_one(LinearPanel)
@@ -808,7 +800,7 @@ def test_prune_detail_cache_keeps_the_open_targets_entry_even_if_orphaned():
 
 
 def test_show_items_prunes_the_detail_cache():
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     panel = Panel()
     stale, fresh = item("ENG-1"), item("ENG-2")
     panel.items = (stale,)
@@ -824,15 +816,15 @@ def test_show_items_prunes_the_detail_cache():
 
 @pytest.mark.asyncio
 async def test_m_marks_every_item_in_the_active_tab_as_seen(monkeypatch):
-    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
     issues = (issue("ENG-1"), issue("ENG-2"))
 
     def fake_refresh(self, integration_id, panel, force=False):
         panel.items = issues
         panel.state = PanelState.READY
 
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         panel = app.query_one(LinearPanel)
@@ -848,7 +840,7 @@ async def test_m_marks_every_item_in_the_active_tab_as_seen(monkeypatch):
 async def test_m_on_an_unsupported_tab_is_a_quiet_no_op():
     # "alpha" has no registered integration, so its Panel carries no items —
     # marking them seen is a genuine no-op, not a special case to guard.
-    app = OflowApp(tabs=(TabConfig("alpha"),))
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("m")
@@ -861,20 +853,20 @@ async def test_a_failed_mark_all_seen_save_notifies_instead_of_crashing(monkeypa
     def refuse_save(self):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("oflow.core.state.SeenState.save", refuse_save)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", refuse_save)
     issues = (issue("ENG-1"),)
 
     def fake_refresh(self, integration_id, panel, force=False):
         panel.items = issues
         panel.state = PanelState.READY
 
-    monkeypatch.setattr("oflow.shell.app.OflowApp.refresh_tab", fake_refresh)
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
     notified: list[str] = []
     monkeypatch.setattr(
-        "oflow.shell.app.OflowApp.notify",
+        "smorg.shell.app.SmorgApp.notify",
         lambda self, message, **kwargs: notified.append(message),
     )
-    app = OflowApp(tabs=(TabConfig("linear"),))
+    app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("m")

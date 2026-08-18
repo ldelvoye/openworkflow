@@ -14,7 +14,7 @@ from pathlib import Path
 
 import tomli_w
 
-CONFIG_DIR_ENV = "OFLOW_CONFIG_DIR"
+CONFIG_DIR_ENV = "SMORG_CONFIG_DIR"
 DIRECTORY_MODE = 0o700
 FILE_MODE = 0o600
 
@@ -46,7 +46,7 @@ def config_dir() -> Path:
     override = os.environ.get(CONFIG_DIR_ENV)
     if override:
         return Path(override)
-    return Path.home() / ".config" / "oflow"
+    return Path.home() / ".config" / "smorg"
 
 
 def config_path() -> Path:

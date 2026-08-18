@@ -18,9 +18,9 @@ from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
 
-from oflow.core.config import ConfigError
-from oflow.core.contract import Item
-from oflow.core.state import SeenState
+from smorg.core.config import ConfigError
+from smorg.core.contract import Item
+from smorg.core.state import SeenState
 
 
 def _scroll_indicators(scroll_y: float, max_scroll_y: float) -> tuple[bool, bool]:
@@ -130,7 +130,7 @@ class Panel(Vertical):
         self.message = ""
         self.as_of: datetime | None = None
         # Set for real once the shell knows which integration owns this tab
-        # (see OflowApp._panel_for/on_mount) — empty/unloaded defaults here
+        # (see SmorgApp._panel_for/on_mount) — empty/unloaded defaults here
         # only so a bare Panel() is never missing the attributes outright.
         self.seen = SeenState({})
         self.integration_id = ""

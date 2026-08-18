@@ -18,6 +18,14 @@ uv run pyright
 Tests run with no network access — sources are tested against recorded
 payloads, panels against constructed items.
 
+A test here asserts a decision of this codebase — a contract, an enforced
+seam, a security property, a policy — never a library's own behavior, and
+never coverage for its own sake. New work adds tests only where it adds
+decisions; a diff that grows tests without new decisions should cut them
+instead. Two shapes look thin but earn their place: a positive-case control
+that keeps a rejection test honest, and the same security property
+re-asserted at each call site, since call sites regress independently.
+
 ## Adding an integration
 
 An integration is one directory and one registry line. Read
@@ -25,14 +33,14 @@ An integration is one directory and one registry line. Read
 boundaries below exist.
 
 ```
-src/oflow/integrations/<id>/
+src/smorg/integrations/<id>/
   manifest.py   what your integration is
   source.py     how its data is fetched
   panel.py      how its tab looks
 ```
 
 Then add your `INTEGRATION` to `INTEGRATIONS` in
-`src/oflow/integrations/__init__.py`. That allowlist is deliberate: anything
+`src/smorg/integrations/__init__.py`. That allowlist is deliberate: anything
 not registered fails with "not supported" rather than half-working.
 
 ### What you inherit (don't rebuild these)
@@ -74,7 +82,7 @@ not registered fails with "not supported" rather than half-working.
 - **Response shape is untrusted.** A server field that should be an object may
   be a string; that must surface as `Malformed`, never a traceback.
 - **Reserved keys can't be bound.** The shell owns its keymap
-  (`core/contract.py: RESERVED_KEYS`); a manifest binding one is rejected at
+  (`core/keys.py: RESERVED_KEYS`); a manifest binding one is rejected at
   construction.
 - **No tokens in output.** Error messages carry no credential material;
   server-controlled text is sanitized before it can reach a terminal.
@@ -89,3 +97,15 @@ not registered fails with "not supported" rather than half-working.
   ordering, a protocol quirk) earns one line.
 - Commits: `type(scope): summary`, lowercase, imperative. Bodies only when the
   diff can't say it.
+
+## Releasing
+
+`pyproject.toml`'s `version` is the only place a release is recorded —
+`__version__` and everything else read it from installed package metadata.
+
+1. `uv version --bump <patch|minor|major>`, which bumps `version` in
+   `pyproject.toml` and syncs the lockfile in one step.
+2. Prune the released section from [docs/ROADMAP.md](docs/ROADMAP.md).
+3. Four gates green (see Setup above).
+4. Commit `chore: release vX.Y.Z`, tag `vX.Y.Z` on that commit, then push the
+   branch and the tag.

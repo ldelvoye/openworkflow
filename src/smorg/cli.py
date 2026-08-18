@@ -12,8 +12,9 @@ import webbrowser
 
 import httpx
 
-from oflow.auth import oauth
-from oflow.auth.store import (
+from smorg import __version__
+from smorg.auth import oauth
+from smorg.auth.store import (
     Credentials,
     CredentialStoreError,
     delete_credentials,
@@ -21,12 +22,12 @@ from oflow.auth.store import (
     now,
     set_credentials,
 )
-from oflow.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
-from oflow.core.contract import Integration
-from oflow.core.registry import UnknownIntegration, get_integration, known_integration_ids
-from oflow.core.text import printable
-from oflow.shell.app import OflowApp
-from oflow.shell.terminal_palette import query_terminal_palette
+from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
+from smorg.core.contract import Integration
+from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
+from smorg.core.text import printable
+from smorg.shell.app import SmorgApp
+from smorg.shell.terminal_palette import query_terminal_palette
 
 LOGIN_TIMEOUT_SECONDS = 300
 
@@ -57,7 +58,7 @@ def _callback_handler(
             self.send_response(200)
             self.send_header("content-type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"oflow: authentication complete. You can close this tab.")
+            self.wfile.write(b"smorg: authentication complete. You can close this tab.")
 
         def log_message(self, format: str, *args: object) -> None:
             """Silence the default access log, which would print over our output."""
@@ -101,7 +102,7 @@ def run_login(
         url = oauth.build_authorize_url(
             metadata, client_id, redirect_uri, challenge, provider.scopes, state
         )
-        print("opening your browser to authorize oflow")
+        print("opening your browser to authorize smorg")
         print(f"if it does not open, paste this:\n{url}\n")
         webbrowser.open(url)
 
@@ -172,9 +173,9 @@ def _warn_on_extra_scopes(integration: Integration, credentials: Credentials) ->
     if not extra:
         return
     print(
-        f"warning: {integration.manifest.display_name} granted scopes oflow did not ask for: "
+        f"warning: {integration.manifest.display_name} granted scopes smorg did not ask for: "
         f"{', '.join(extra)}. Nothing here uses them, but the stored token can. "
-        f"Run 'oflow logout {integration.manifest.id}' to revoke it.",
+        f"Run 'smorg logout {integration.manifest.id}' to revoke it.",
         file=sys.stderr,
     )
 
@@ -194,7 +195,7 @@ def _status() -> int:
     if not config.tabs:
         available = known_integration_ids()
         if available:
-            print(f"no tabs configured. run: oflow connect {available[0]}")
+            print(f"no tabs configured. run: smorg connect {available[0]}")
         else:
             print("no tabs configured, and this build registers no integrations")
         return 0
@@ -275,16 +276,17 @@ def _logout(integration_id: str) -> int:
 
 def _run() -> int:
     tabs = load_config().tabs
-    # Must happen before OflowApp exists: once Textual's driver is running it
+    # Must happen before SmorgApp exists: once Textual's driver is running it
     # owns stdin, and it has no notion of an OSC color-query response (see
     # query_terminal_palette's docstring) — this is the only safe window.
     palette = query_terminal_palette()
-    OflowApp(tabs=tabs, palette=palette).run()
+    SmorgApp(tabs=tabs, palette=palette).run()
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="oflow")
+    parser = argparse.ArgumentParser(prog="smorg")
+    parser.add_argument("--version", action="version", version=f"smorg {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     connect = subparsers.add_parser("connect", help="authenticate an integration")

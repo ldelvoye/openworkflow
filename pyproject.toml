@@ -1,6 +1,6 @@
 [project]
-name = "oflow"
-version = "1.0.0"
+name = "smorg"
+version = "1.0.1"
 description = "Keyboard-driven terminal dashboard, one tab per connected integration"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-oflow = "oflow.cli:main"
+smorg = "smorg.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.9", "pyright>=1.1"]

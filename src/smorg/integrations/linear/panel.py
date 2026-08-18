@@ -13,11 +13,11 @@ from rich.console import Group, RenderableType
 from rich.text import Text
 from textual.binding import Binding
 
-from oflow.core.contract import Item
-from oflow.integrations.linear.source import Issue, IssueDetail
-from oflow.shell.format import age
-from oflow.shell.markdown import Markdown
-from oflow.shell.panel import Panel
+from smorg.core.contract import Item
+from smorg.integrations.linear.source import Issue, IssueDetail
+from smorg.shell.format import age
+from smorg.shell.markdown import Markdown
+from smorg.shell.panel import Panel
 
 CHANGED_MARK = "●"
 # A standard ANSI color name (not a hex/truecolor value or a Textual $variable),

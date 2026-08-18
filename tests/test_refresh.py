@@ -4,15 +4,15 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from oflow.auth.oauth import ProviderConfig
-from oflow.auth.refresh import EXPIRY_MARGIN, fresh_credentials
-from oflow.auth.store import Credentials, get_credentials, set_credentials
-from oflow.core.contract import AuthExpired
+from smorg.auth.oauth import ProviderConfig
+from smorg.auth.refresh import EXPIRY_MARGIN, fresh_credentials
+from smorg.auth.store import Credentials, get_credentials, set_credentials
+from smorg.core.contract import AuthExpired
 
 PROVIDER = ProviderConfig(
     metadata_url="https://auth.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
-    client_name="oflow",
+    client_name="smorg",
 )
 METADATA = {
     "authorization_endpoint": "https://auth.invalid/authorize",
@@ -24,8 +24,8 @@ NOW = datetime.now(UTC)
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.setenv("OFLOW_CREDENTIAL_STORE", "file")
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CREDENTIAL_STORE", "file")
 
 
 def credentials(

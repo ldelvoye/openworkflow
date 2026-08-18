@@ -50,7 +50,7 @@ class HelpOverlay(ModalScreen[None]):
     }
     """
 
-    # escape is reserved shell-wide for exactly this (see contract.RESERVED_KEYS).
+    # escape is reserved shell-wide for exactly this (see keys.RESERVED_KEYS).
     BINDINGS = [Binding("escape", "dismiss", "close", show=False)]
 
     def __init__(self, tab: Section | None, no_tabs_hint: str) -> None:
