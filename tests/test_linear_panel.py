@@ -11,11 +11,11 @@ from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
-from oflow.core.state import SeenState
-from oflow.integrations.linear.panel import LinearPanel
-from oflow.integrations.linear.source import Comment, Issue, IssueDetail
-from oflow.shell.markdown import is_local_path
-from oflow.shell.panel import PanelState
+from smorg.core.state import SeenState
+from smorg.integrations.linear.panel import LinearPanel
+from smorg.integrations.linear.source import Comment, Issue, IssueDetail
+from smorg.shell.markdown import is_local_path
+from smorg.shell.panel import PanelState
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -74,7 +74,7 @@ def test_the_open_action_returns_the_url_of_the_selected_issue():
 
 def test_the_panel_never_fetches():
     """The seam the whole design rests on, enforced rather than trusted."""
-    source = (Path("src") / "oflow" / "integrations" / "linear" / "panel.py").read_text()
+    source = (Path("src") / "smorg" / "integrations" / "linear" / "panel.py").read_text()
     assert "httpx" not in source
     assert "McpClient" not in source
     assert "fetch" not in source
@@ -308,9 +308,9 @@ async def test_pressing_the_down_key_moves_the_selection_through_the_real_bindin
 async def test_pressing_o_opens_the_selected_issue_and_clears_its_change_mark(monkeypatch):
     opened: list[str] = []
     monkeypatch.setattr(
-        "oflow.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
+        "smorg.integrations.linear.panel.webbrowser.open", lambda url: opened.append(url)
     )
-    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
 
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
@@ -331,16 +331,16 @@ def test_a_failed_seen_save_does_not_crash_and_notifies_instead(monkeypatch):
     wrapped in a ConfigError, so the guard around seen.save() has to catch the
     unwrapped type to actually survive one.
     """
-    monkeypatch.setattr("oflow.integrations.linear.panel.webbrowser.open", lambda url: None)
+    monkeypatch.setattr("smorg.integrations.linear.panel.webbrowser.open", lambda url: None)
 
     def refuse_save(self):
         raise OSError("No space left on device")
 
-    monkeypatch.setattr("oflow.core.state.SeenState.save", refuse_save)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", refuse_save)
 
     notified: list[str] = []
     monkeypatch.setattr(
-        "oflow.integrations.linear.panel.LinearPanel.notify",
+        "smorg.integrations.linear.panel.LinearPanel.notify",
         lambda self, message, **kwargs: notified.append(message),
     )
 
@@ -357,7 +357,7 @@ def test_a_failed_seen_save_does_not_crash_and_notifies_instead(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_enter_marks_the_selected_issue_seen(monkeypatch):
-    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
 
     panel = panel_with(issue("ENG-1"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
@@ -374,7 +374,7 @@ async def test_enter_marks_the_selected_issue_seen(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_second_enter_that_closes_the_pane_does_not_remark_it(monkeypatch):
     saves: list[None] = []
-    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: saves.append(None))
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: saves.append(None))
 
     panel = panel_with(issue("ENG-1"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
@@ -393,7 +393,7 @@ async def test_a_second_enter_that_closes_the_pane_does_not_remark_it(monkeypatc
 
 @pytest.mark.asyncio
 async def test_enter_on_a_different_issue_while_the_pane_is_open_marks_that_issue(monkeypatch):
-    monkeypatch.setattr("oflow.core.state.SeenState.save", lambda self: None)
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
 
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
@@ -707,7 +707,7 @@ async def test_a_linear_link_carries_the_href_as_style_link_through_the_real_ren
 
 @pytest.mark.asyncio
 async def test_a_local_path_code_span_is_underlined_when_the_check_is_forced_true(monkeypatch):
-    monkeypatch.setattr("oflow.shell.markdown.is_local_path", lambda text: True)
+    monkeypatch.setattr("smorg.shell.markdown.is_local_path", lambda text: True)
     segments = await _render_detail_segments("open `src/app.py` please")
 
     code_style = next(segment.style for segment in segments if "src/app.py" in segment.text)
@@ -722,7 +722,7 @@ async def test_a_local_path_code_span_is_underlined_when_the_check_is_forced_tru
 async def test_a_local_path_code_span_is_not_underlined_when_the_check_is_forced_false(
     monkeypatch,
 ):
-    monkeypatch.setattr("oflow.shell.markdown.is_local_path", lambda text: False)
+    monkeypatch.setattr("smorg.shell.markdown.is_local_path", lambda text: False)
     segments = await _render_detail_segments("open `src/app.py` please")
 
     code_style = next(segment.style for segment in segments if "src/app.py" in segment.text)
@@ -732,7 +732,7 @@ async def test_a_local_path_code_span_is_not_underlined_when_the_check_is_forced
 
 @pytest.mark.asyncio
 async def test_non_code_text_is_never_underlined_by_the_local_path_check(monkeypatch):
-    monkeypatch.setattr("oflow.shell.markdown.is_local_path", lambda text: True)
+    monkeypatch.setattr("smorg.shell.markdown.is_local_path", lambda text: True)
     segments = await _render_detail_segments("plain text and `src/app.py` here")
 
     plain_style = next(segment.style for segment in segments if "plain text" in segment.text)
@@ -797,7 +797,7 @@ def test_render_detail_shows_nothing_when_no_comments_are_hidden():
 
 @pytest.mark.asyncio
 async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
-    from oflow.shell.panel import _DetailGutter
+    from smorg.shell.panel import _DetailGutter
 
     # Blank-line-separated, not just "\n"-joined: consecutive plain lines are
     # one soft-wrapped Markdown paragraph, so a handful of short "line N"

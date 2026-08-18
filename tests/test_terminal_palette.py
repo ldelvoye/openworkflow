@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from oflow.shell.terminal_palette import (
+from smorg.shell.terminal_palette import (
     TerminalPalette,
     parse_palette,
     query_terminal_palette,

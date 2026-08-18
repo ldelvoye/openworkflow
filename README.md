@@ -1,4 +1,4 @@
-# oflow
+# smorg
 
 A keyboard-driven terminal dashboard. Each integration you connect becomes a tab.
 Nothing is enabled by default.
@@ -7,10 +7,10 @@ Nothing is enabled by default.
 
 Not published to PyPI yet. From a checkout:
 
-    uv run oflow connect linear
-    uv run oflow run
+    uv run smorg connect linear
+    uv run smorg run
 
-Once released, `uvx oflow` will fetch and run it directly. That first run
+Once released, `uvx smorg` will fetch and run it directly. That first run
 installs the package before the screen paints, so expect a brief blank terminal.
 
 Inside the dashboard: `shift+←`/`shift+→` switch tabs, `up`/`down` select an

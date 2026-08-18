@@ -11,8 +11,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from oflow.core.contract import Malformed
-from oflow.core.text import printable
+from smorg.core.contract import Malformed
+from smorg.core.text import printable
 
 
 def required_string(raw: dict[str, Any], key: str) -> str:

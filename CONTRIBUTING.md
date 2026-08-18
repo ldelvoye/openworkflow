@@ -33,14 +33,14 @@ An integration is one directory and one registry line. Read
 boundaries below exist.
 
 ```
-src/oflow/integrations/<id>/
+src/smorg/integrations/<id>/
   manifest.py   what your integration is
   source.py     how its data is fetched
   panel.py      how its tab looks
 ```
 
 Then add your `INTEGRATION` to `INTEGRATIONS` in
-`src/oflow/integrations/__init__.py`. That allowlist is deliberate: anything
+`src/smorg/integrations/__init__.py`. That allowlist is deliberate: anything
 not registered fails with "not supported" rather than half-working.
 
 ### What you inherit (don't rebuild these)

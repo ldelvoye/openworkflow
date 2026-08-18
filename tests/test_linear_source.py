@@ -6,9 +6,9 @@ from pathlib import Path
 import httpx
 import pytest
 
-from oflow.auth.store import Credentials
-from oflow.core.contract import Malformed
-from oflow.integrations.linear.source import (
+from smorg.auth.store import Credentials
+from smorg.core.contract import Malformed
+from smorg.integrations.linear.source import (
     COMMENT_BODY_LIMIT,
     DESCRIPTION_LIMIT,
     FIELDS,
@@ -214,7 +214,7 @@ def test_a_failure_after_a_real_handshake_is_not_retried():
         calls["tools"] += 1
         return httpx.Response(500, text="down")
 
-    from oflow.core.contract import Unavailable
+    from smorg.core.contract import Unavailable
 
     with pytest.raises(Unavailable):
         fetch_with(handler)
@@ -230,7 +230,7 @@ def test_an_expired_token_is_never_retried_with_a_new_handshake():
         methods.append(json.loads(request.content)["method"])
         return httpx.Response(401, json={"error": "invalid_token"})
 
-    from oflow.core.contract import AuthExpired
+    from smorg.core.contract import AuthExpired
 
     with pytest.raises(AuthExpired):
         fetch_with(handler)
@@ -254,8 +254,8 @@ def detail_handler(overrides: dict | None = None) -> Callable[[httpx.Request], h
 
 
 def detail_with(handler):
-    from oflow.core.contract import Item
-    from oflow.integrations.linear.source import fetch_detail
+    from smorg.core.contract import Item
+    from smorg.integrations.linear.source import fetch_detail
 
     item = Item(id="ENG-1", updated_at=datetime(2026, 8, 13, 12, 0, tzinfo=UTC), url="https://x")
     return fetch_detail(CREDENTIALS, httpx.Client(transport=httpx.MockTransport(handler)), item)

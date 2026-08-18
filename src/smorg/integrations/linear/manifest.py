@@ -13,16 +13,16 @@ from datetime import timedelta
 
 import httpx
 
-from oflow.auth.oauth import ProviderConfig
-from oflow.auth.store import Credentials
-from oflow.core.contract import Action, ActionClass, Item, Manifest
-from oflow.integrations.linear.panel import LinearPanel
-from oflow.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
+from smorg.auth.oauth import ProviderConfig
+from smorg.auth.store import Credentials
+from smorg.core.contract import Action, ActionClass, Item, Manifest
+from smorg.integrations.linear.panel import LinearPanel
+from smorg.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
 
 PROVIDER = ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
     scopes=("read",),
-    client_name="oflow",
+    client_name="smorg",
 )
 
 MANIFEST = Manifest(

@@ -1,6 +1,6 @@
 # MCP protocol version
 
-`oflow` talks to some services over the Model Context Protocol. MCP is used for
+`smorg` talks to some services over the Model Context Protocol. MCP is used for
 **authentication and transport**, never as a stable data contract — response
 shapes vary enormously between servers, so each integration parses its own.
 
@@ -44,7 +44,7 @@ them means a server has dropped the revision we speak:
 ## What moving to `2026-07-28` requires
 
 It is a different protocol rather than a newer dialect, so this is a second
-transport path in `src/oflow/mcp.py`, not a changed constant:
+transport path in `src/smorg/mcp.py`, not a changed constant:
 
 - **The handshake is gone.** `initialize` and `notifications/initialized` are
   removed; the protocol is stateless.

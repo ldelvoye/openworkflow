@@ -2,8 +2,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from oflow.core.contract import Malformed
-from oflow.core.shape import optional_string, required_string, timestamp
+from smorg.core.contract import Malformed
+from smorg.core.shape import optional_string, required_string, timestamp
 
 
 def test_required_string_returns_the_value():

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from oflow.auth.oauth import (
+from smorg.auth.oauth import (
     OAuthError,
     ProviderConfig,
     build_authorize_url,
@@ -18,7 +18,7 @@ from oflow.auth.oauth import (
     register_client,
     revoke,
 )
-from oflow.auth.store import Credentials
+from smorg.auth.store import Credentials
 
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
 RESOURCE = "https://mcp.linear.app/mcp"
@@ -26,7 +26,7 @@ REDIRECT = "http://127.0.0.1:8765/callback"
 PROVIDER = ProviderConfig(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
     scopes=("read",),
-    client_name="oflow",
+    client_name="smorg",
 )
 
 
@@ -238,7 +238,7 @@ def test_refresh_without_a_refresh_token_raises(metadata):
         raise AssertionError("must not reach the network")
 
     old = Credentials(access_token="at-1", refresh_token=None, expires_at=None, scope="read")
-    with pytest.raises(OAuthError, match="oflow connect"):
+    with pytest.raises(OAuthError, match="smorg connect"):
         refresh_credentials(client_returning(handler), metadata, "client-abc", old)
 
 

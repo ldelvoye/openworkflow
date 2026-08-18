@@ -7,7 +7,7 @@ rather than half-working.
 
 from __future__ import annotations
 
-from oflow.core.contract import Integration
-from oflow.integrations import linear
+from smorg.core.contract import Integration
+from smorg.integrations import linear
 
 INTEGRATIONS: tuple[Integration, ...] = (linear.INTEGRATION,)

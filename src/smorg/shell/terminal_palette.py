@@ -1,10 +1,10 @@
 """The terminal's real colors, so a screenshot shows what the user sees.
 
-oflow renders under Textual's "ansi-dark" theme, so on-screen colors resolve
+smorg renders under Textual's "ansi-dark" theme, so on-screen colors resolve
 through the terminal's own palette; Textual's SVG export does not, and falls
 back to a fixed generic mapping instead. This module learns the real palette
 via OSC 4/10/11 so export_screenshot can use it. Queried once, in cli._run,
-strictly before OflowApp exists — see query_terminal_palette below.
+strictly before SmorgApp exists — see query_terminal_palette below.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def query_terminal_palette(
 ) -> TerminalPalette | None:
     """Ask the terminal for its real palette.
 
-    Must run before OflowApp exists — once Textual's driver owns stdin, it
+    Must run before SmorgApp exists — once Textual's driver owns stdin, it
     would replay an OSC response as synthetic keypresses (the "r" in "rgb:"
     would fire the refresh binding). Never raises: returns None if the
     palette can't be learned, bounded by `timeout` so a silent terminal

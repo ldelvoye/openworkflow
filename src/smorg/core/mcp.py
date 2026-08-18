@@ -22,9 +22,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from oflow import __version__
-from oflow.core.contract import AuthExpired, Malformed, Unavailable
-from oflow.core.text import printable
+from smorg import __version__
+from smorg.core.contract import AuthExpired, Malformed, Unavailable
+from smorg.core.text import printable
 
 # A version we have verified, not the newest published one — a server that
 # doesn't recognise the requested version may reject it outright rather
@@ -95,7 +95,7 @@ class McpClient:
                 "params": {
                     "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "oflow", "version": __version__},
+                    "clientInfo": {"name": "smorg", "version": __version__},
                 },
             }
         )

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from keyring.errors import KeyringError
 
-from oflow.auth.store import (
+from smorg.auth.store import (
     CredentialPermissionError,
     Credentials,
     CredentialStoreError,
@@ -25,8 +25,8 @@ CREDS = Credentials(
 
 @pytest.fixture
 def file_store(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.setenv("OFLOW_CREDENTIAL_STORE", "file")
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CREDENTIAL_STORE", "file")
     return tmp_path / "cfg"
 
 
@@ -128,7 +128,7 @@ def test_failed_write_leaves_the_previous_file_intact(file_store, monkeypatch):
     before = path.read_text()
 
     monkeypatch.setattr(
-        "oflow.auth.store.json.dumps", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+        "smorg.auth.store.json.dumps", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     with pytest.raises(RuntimeError):
         set_credentials("sentry", CREDS)
@@ -138,7 +138,7 @@ def test_failed_write_leaves_the_previous_file_intact(file_store, monkeypatch):
 
 
 def test_serialised_credentials_never_leave_the_store_module():
-    package = Path(__file__).parents[1] / "src" / "oflow"
+    package = Path(__file__).parents[1] / "src" / "smorg"
     offenders = [
         module.relative_to(package).as_posix()
         for module in package.rglob("*.py")
@@ -148,16 +148,16 @@ def test_serialised_credentials_never_leave_the_store_module():
 
 
 def test_keyring_store_rejects_insecure_backend(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.delenv("OFLOW_CREDENTIAL_STORE", raising=False)
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("SMORG_CREDENTIAL_STORE", raising=False)
 
     class FakeInsecureBackend:
         pass
 
-    monkeypatch.setattr("oflow.auth.store.keyring.get_keyring", lambda: FakeInsecureBackend())
+    monkeypatch.setattr("smorg.auth.store.keyring.get_keyring", lambda: FakeInsecureBackend())
     with pytest.raises(InsecureBackendError) as excinfo:
         set_credentials("linear", CREDS)
-    assert "OFLOW_CREDENTIAL_STORE=file" in str(excinfo.value)
+    assert "SMORG_CREDENTIAL_STORE=file" in str(excinfo.value)
 
 
 def _fake_secure_backend() -> object:
@@ -173,14 +173,14 @@ def _fake_secure_backend() -> object:
 
 
 def test_keyring_backend_error_on_get_raises_credential_store_error(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.delenv("OFLOW_CREDENTIAL_STORE", raising=False)
-    monkeypatch.setattr("oflow.auth.store.keyring.get_keyring", lambda: _fake_secure_backend())
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.delenv("SMORG_CREDENTIAL_STORE", raising=False)
+    monkeypatch.setattr("smorg.auth.store.keyring.get_keyring", lambda: _fake_secure_backend())
 
     def raise_keyring_error(service, integration_id):
         raise KeyringError("the keychain is locked")
 
-    monkeypatch.setattr("oflow.auth.store.keyring.get_password", raise_keyring_error)
+    monkeypatch.setattr("smorg.auth.store.keyring.get_password", raise_keyring_error)
 
     with pytest.raises(CredentialStoreError):
         get_credentials("linear")
@@ -192,7 +192,7 @@ def test_file_store_read_oserror_raises_credential_store_error(file_store, monke
     def raise_oserror(self):
         raise OSError("permission denied")
 
-    monkeypatch.setattr("oflow.auth.store.Path.read_text", raise_oserror)
+    monkeypatch.setattr("smorg.auth.store.Path.read_text", raise_oserror)
 
     with pytest.raises(CredentialStoreError):
         get_credentials("linear")

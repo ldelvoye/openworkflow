@@ -15,15 +15,15 @@ from typing import TYPE_CHECKING, Protocol
 
 import httpx
 
-from oflow.auth.oauth import ProviderConfig
-from oflow.auth.store import Credentials
-from oflow.core.keys import RESERVED_KEYS
+from smorg.auth.oauth import ProviderConfig
+from smorg.auth.store import Credentials
+from smorg.core.keys import RESERVED_KEYS
 
 if TYPE_CHECKING:
     # Deferred: shell.panel imports this module for Item, so a real import
     # here would be circular; safe since the name is only used in a type
     # position.
-    from oflow.shell.panel import Panel
+    from smorg.shell.panel import Panel
 
 
 class ActionClass(StrEnum):

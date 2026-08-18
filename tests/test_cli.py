@@ -2,15 +2,15 @@ from datetime import UTC, datetime
 
 import pytest
 
-from oflow.auth.store import (
+from smorg.auth.store import (
     Credentials,
     CredentialStoreError,
     get_credentials,
     set_credentials,
 )
-from oflow.cli import main
-from oflow.core.config import Config, TabConfig, load_config, save_config
-from oflow.core.registry import known_integration_ids
+from smorg.cli import main
+from smorg.core.config import Config, TabConfig, load_config, save_config
+from smorg.core.registry import known_integration_ids
 
 LIVE = Credentials(
     access_token="at-secret",
@@ -22,8 +22,8 @@ LIVE = Credentials(
 
 @pytest.fixture(autouse=True)
 def isolated(tmp_path, monkeypatch):
-    monkeypatch.setenv("OFLOW_CONFIG_DIR", str(tmp_path / "cfg"))
-    monkeypatch.setenv("OFLOW_CREDENTIAL_STORE", "file")
+    monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setenv("SMORG_CREDENTIAL_STORE", "file")
 
 
 @pytest.fixture
@@ -44,8 +44,8 @@ def revocation(monkeypatch):
         calls["revoked"] += 1
         return calls.get("succeeds", True)
 
-    monkeypatch.setattr("oflow.cli.oauth.discover", fake_discover)
-    monkeypatch.setattr("oflow.cli.oauth.revoke", fake_revoke)
+    monkeypatch.setattr("smorg.cli.oauth.discover", fake_discover)
+    monkeypatch.setattr("smorg.cli.oauth.revoke", fake_revoke)
     return calls
 
 
@@ -108,7 +108,7 @@ def test_logout_still_deletes_when_revocation_fails(connected, revocation, capsy
 
 def test_connect_warns_about_scopes_beyond_the_request(monkeypatch, capsys):
     over_scoped = Credentials("at", "rt", None, "read write")
-    monkeypatch.setattr("oflow.cli.run_login", lambda *args, **kwargs: ("client-abc", over_scoped))
+    monkeypatch.setattr("smorg.cli.run_login", lambda *args, **kwargs: ("client-abc", over_scoped))
 
     assert main(["connect", "linear"]) == 0
 
@@ -120,14 +120,14 @@ def test_connect_warns_about_scopes_beyond_the_request(monkeypatch, capsys):
 
 def test_connect_revokes_a_token_it_cannot_store(monkeypatch):
     credentials = Credentials("at", "rt", None, "read")
-    monkeypatch.setattr("oflow.cli.run_login", lambda *args, **kwargs: ("client-abc", credentials))
+    monkeypatch.setattr("smorg.cli.run_login", lambda *args, **kwargs: ("client-abc", credentials))
     revoked: list[tuple] = []
-    monkeypatch.setattr("oflow.cli._revoke", lambda *args: bool(revoked.append(args)) or True)
+    monkeypatch.setattr("smorg.cli._revoke", lambda *args: bool(revoked.append(args)) or True)
 
     def refuse(*args):
         raise CredentialStoreError("keychain refused")
 
-    monkeypatch.setattr("oflow.cli.set_credentials", refuse)
+    monkeypatch.setattr("smorg.cli.set_credentials", refuse)
 
     assert main(["connect", "linear"]) == 1
     assert len(revoked) == 1

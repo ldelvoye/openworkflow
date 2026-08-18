@@ -12,10 +12,10 @@ from datetime import timedelta
 
 import httpx
 
-from oflow.auth import oauth
-from oflow.auth.oauth import OAuthError, ProviderConfig
-from oflow.auth.store import Credentials, get_credentials, now, set_credentials
-from oflow.core.contract import AuthExpired
+from smorg.auth import oauth
+from smorg.auth.oauth import OAuthError, ProviderConfig
+from smorg.auth.store import Credentials, get_credentials, now, set_credentials
+from smorg.core.contract import AuthExpired
 
 # How close to expiry counts as expired: covers clock skew against the
 # provider plus the gap between this check and the request using the token.

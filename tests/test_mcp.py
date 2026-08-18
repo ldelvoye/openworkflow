@@ -3,8 +3,8 @@ import json
 import httpx
 import pytest
 
-from oflow.core.contract import AuthExpired, Malformed, Unavailable
-from oflow.core.mcp import MCP_PROTOCOL_VERSION, McpClient, McpSession
+from smorg.core.contract import AuthExpired, Malformed, Unavailable
+from smorg.core.mcp import MCP_PROTOCOL_VERSION, McpClient, McpSession
 
 ENDPOINT = "https://example.invalid/mcp"
 
@@ -297,7 +297,7 @@ def test_explicit_version_is_replaced_by_initialize():
 # --- McpSession: the per-endpoint handshake-skip cache ---
 #
 # The skip/retry-once behavior itself is already exercised end to end through
-# oflow.integrations.linear.source (test_linear_source.py's
+# smorg.integrations.linear.source (test_linear_source.py's
 # test_the_second_fetch_skips_the_handshake and friends) — that coverage
 # isn't duplicated here. What only a direct test can show is that the cache
 # is keyed *per endpoint*, since Linear's own tests only ever use one.

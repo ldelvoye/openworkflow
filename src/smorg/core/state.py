@@ -12,8 +12,8 @@ from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
 
-from oflow.core.config import config_dir, ensure_config_dir, write_private_file
-from oflow.core.contract import Item
+from smorg.core.config import config_dir, ensure_config_dir, write_private_file
+from smorg.core.contract import Item
 
 
 def state_path() -> Path:

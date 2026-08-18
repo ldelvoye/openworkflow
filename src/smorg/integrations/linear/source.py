@@ -13,11 +13,11 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from oflow.auth.store import Credentials
-from oflow.core.contract import Item, Malformed
-from oflow.core.mcp import McpSession
-from oflow.core.shape import optional_string, required_string, timestamp
-from oflow.core.text import capped, printable, printable_block
+from smorg.auth.store import Credentials
+from smorg.core.contract import Item, Malformed
+from smorg.core.mcp import McpSession
+from smorg.core.shape import optional_string, required_string, timestamp
+from smorg.core.text import capped, printable, printable_block
 
 ENDPOINT = "https://mcp.linear.app/mcp"
 

@@ -1,4 +1,4 @@
 def test_package_imports():
-    import oflow
+    import smorg
 
-    assert oflow.__version__
+    assert smorg.__version__

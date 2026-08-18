@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from oflow.core.contract import Integration
+from smorg.core.contract import Integration
 
 
 class UnknownIntegration(Exception):
@@ -12,7 +12,7 @@ class UnknownIntegration(Exception):
 def _by_id() -> dict[str, Integration]:
     # Imported per call, not at module load, so tests can swap the allowlist
     # without reloading this module.
-    from oflow import integrations
+    from smorg import integrations
 
     return {entry.manifest.id: entry for entry in integrations.INTEGRATIONS}
 

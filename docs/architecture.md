@@ -1,6 +1,6 @@
 # Architecture
 
-oflow is a keyboard-driven terminal dashboard: each connected integration is a
+smorg is a keyboard-driven terminal dashboard: each connected integration is a
 tab, nothing is enabled by default, and the app is read-plus-safe-actions — it
 shows what's on your plate and opens things, it never writes to a service.
 
@@ -110,7 +110,7 @@ not stay bold forever.
 - **Tokens live in the OS keychain**, and the store refuses any keyring backend
   not on a known-secure allowlist — an unrelated `keyrings.alt` install would
   otherwise silently supply an insecure one. The plaintext file fallback is
-  opt-in only (`OFLOW_CREDENTIAL_STORE=file`), never automatic.
+  opt-in only (`SMORG_CREDENTIAL_STORE=file`), never automatic.
 - **Permissions are reported, not repaired.** A widened config directory or
   credentials file fails loudly; silently re-tightening would erase the
   evidence that tokens had been readable.
