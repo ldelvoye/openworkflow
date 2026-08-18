@@ -142,15 +142,6 @@ async def test_an_empty_app_renders_the_connect_hint():
 
 
 @pytest.mark.asyncio
-async def test_q_quits():
-    app = OflowApp(tabs=(TabConfig("alpha"),))
-    async with app.run_test() as pilot:
-        await pilot.press("q")
-        await pilot.pause()
-    assert not app.is_running
-
-
-@pytest.mark.asyncio
 async def test_shift_right_switches_to_the_next_tab():
     app = OflowApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
     async with app.run_test() as pilot:

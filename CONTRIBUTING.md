@@ -18,6 +18,14 @@ uv run pyright
 Tests run with no network access — sources are tested against recorded
 payloads, panels against constructed items.
 
+A test here asserts a decision of this codebase — a contract, an enforced
+seam, a security property, a policy — never a library's own behavior, and
+never coverage for its own sake. New work adds tests only where it adds
+decisions; a diff that grows tests without new decisions should cut them
+instead. Two shapes look thin but earn their place: a positive-case control
+that keeps a rejection test honest, and the same security property
+re-asserted at each call site, since call sites regress independently.
+
 ## Adding an integration
 
 An integration is one directory and one registry line. Read

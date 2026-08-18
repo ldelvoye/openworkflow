@@ -411,30 +411,6 @@ async def test_enter_on_a_different_issue_while_the_pane_is_open_marks_that_issu
     assert panel.seen.is_changed("linear", issue("ENG-2")) is False
 
 
-def test_a_failed_seen_save_on_enter_does_not_crash_and_notifies_instead(monkeypatch):
-    """Mirrors test_a_failed_seen_save_does_not_crash_and_notifies_instead for
-    the `o` path — enter shares the same Panel.mark_seen, so it must survive
-    the same unwrapped OSError from a real disk failure.
-    """
-
-    def refuse_save(self):
-        raise OSError("No space left on device")
-
-    monkeypatch.setattr("oflow.core.state.SeenState.save", refuse_save)
-
-    notified: list[str] = []
-    monkeypatch.setattr(
-        "oflow.integrations.linear.panel.LinearPanel.notify",
-        lambda self, message, **kwargs: notified.append(message),
-    )
-
-    panel = panel_with(issue("ENG-1"))
-    panel.action_toggle_detail()
-
-    assert notified == ["No space left on device"]
-    assert panel.seen.is_changed("linear", issue("ENG-1")) is False
-
-
 @pytest.mark.asyncio
 async def test_a_hostile_title_is_never_interpreted_as_markup_in_the_real_render():
     hostile = replace(issue("ENG-1"), title="[red]x[/red]")
