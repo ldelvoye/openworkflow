@@ -59,9 +59,9 @@ WORDY_TOKEN = TokenPrompt(
     help_url="https://widget.example.invalid/settings/tokens/new",
     scopes_hint="read access to widgets and their metadata, or the widgets scope",
 )
-TOKEN_PATH = ConnectionPath(id="token", token=WIDGET_TOKEN)
-WORDY_TOKEN_PATH = ConnectionPath(id="token", token=WORDY_TOKEN)
-OAUTH_PATH = ConnectionPath(id="mcp", provider=WIDGET_PROVIDER)
+TOKEN_PATH = ConnectionPath(id="token", method=WIDGET_TOKEN)
+WORDY_TOKEN_PATH = ConnectionPath(id="token", method=WORDY_TOKEN)
+OAUTH_PATH = ConnectionPath(id="mcp", method=WIDGET_PROVIDER)
 PASTED = "widget_pat_0abcdefghijklmnop"
 
 
@@ -85,7 +85,7 @@ def _drawn(widget: Static) -> str:
 
 def fake_manifest(
     identifier: str = "widget",
-    connections: tuple[ConnectionPath, ...] = (ConnectionPath(id="mcp", provider=WIDGET_PROVIDER),),
+    connections: tuple[ConnectionPath, ...] = (ConnectionPath(id="mcp", method=WIDGET_PROVIDER),),
 ) -> Manifest:
     return Manifest(
         id=identifier,
@@ -413,8 +413,8 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
 
 
 def test_addable_integrations_excludes_configured_ones_and_lists_paths_in_order(registered):
-    mcp = ConnectionPath(id="mcp", provider=WIDGET_PROVIDER)
-    api = ConnectionPath(id="api", provider=WIDGET_PROVIDER)
+    mcp = ConnectionPath(id="mcp", method=WIDGET_PROVIDER)
+    api = ConnectionPath(id="api", method=WIDGET_PROVIDER)
     registered(fake_manifest("widget", connections=(mcp, api)), fake_manifest("gadget"))
     save_config(Config(tabs=(TabConfig(integration="gadget"),)))
 

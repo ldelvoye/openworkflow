@@ -72,11 +72,11 @@ def _connect(integration_id: str) -> int:
         print(str(error), file=sys.stderr)
         return 1
 
-    if path.token is not None:
-        return _connect_with_token(integration, config, path, path.token)
+    method = path.method
+    if isinstance(method, TokenPrompt):
+        return _connect_with_token(integration, config, path, method)
 
-    provider = path.provider
-    assert provider is not None, "a connection path names a provider or a token"
+    provider = method
 
     with httpx.Client(timeout=30) as client:
         try:

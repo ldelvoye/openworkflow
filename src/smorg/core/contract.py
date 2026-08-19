@@ -78,18 +78,13 @@ class ConnectionPath:
 
     Which of the two a path is decides the whole connect flow — a browser and a
     refreshable token on one side, one field of input and nothing to renew on
-    the other — so exactly one is given, and neither may be inferred.
+    the other — so it is one field of a union type rather than two optionals:
+    naming both or neither is unconstructible instead of rejected, and every
+    reader branches on isinstance rather than on which optional came back None.
     """
 
     id: str
-    provider: ProviderConfig | None = None
-    token: TokenPrompt | None = None
-
-    def __post_init__(self) -> None:
-        if (self.provider is None) == (self.token is None):
-            raise ValueError(
-                f"connection path {self.id!r} must name exactly one of provider or token"
-            )
+    method: ProviderConfig | TokenPrompt
 
 
 def _duplicates(values: Sequence[str]) -> list[str]:

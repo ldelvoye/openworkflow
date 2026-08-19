@@ -19,9 +19,14 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from smorg.auth.login import LoginCancelled, perform_login
-from smorg.auth.oauth import OAuthError, extra_scopes_warning
+from smorg.auth.oauth import OAuthError, ProviderConfig, extra_scopes_warning
 from smorg.auth.store import Credentials, CredentialStoreError, set_credentials
-from smorg.auth.token import InvalidToken, accepted_token, credentials_from_token
+from smorg.auth.token import (
+    InvalidToken,
+    TokenPrompt,
+    accepted_token,
+    credentials_from_token,
+)
 from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from smorg.core.contract import ConnectionPath
 from smorg.core.registry import UnknownIntegration, get_integration, manifests
@@ -302,7 +307,7 @@ async def open_tab_for(
 def connect_screen_for(integration: AddableIntegration, path: ConnectionPath) -> ManagementScreen:
     """Which connect flow a chosen path leads to: the browser wait, or one
     field of input. The path decides, and this is the only place that asks."""
-    if path.token is not None:
+    if isinstance(path.method, TokenPrompt):
         return TokenModal(integration.integration_id, integration.display_name, path)
     return ConnectModal(integration.integration_id, integration.display_name, path)
 
@@ -352,8 +357,8 @@ class TokenModal(ManagementScreen):
 
     def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
         super().__init__()
-        prompt = path.token
-        assert prompt is not None, "TokenModal is only reached for a token path"
+        prompt = path.method
+        assert isinstance(prompt, TokenPrompt), "TokenModal is only reached for a token path"
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path
@@ -415,8 +420,10 @@ class ConnectModal(ManagementScreen):
 
     def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
         super().__init__()
-        provider = path.provider
-        assert provider is not None, "ConnectModal is only reached for an OAuth path"
+        provider = path.method
+        assert isinstance(provider, ProviderConfig), (
+            "ConnectModal is only reached for an OAuth path"
+        )
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path

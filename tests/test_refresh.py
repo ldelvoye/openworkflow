@@ -177,11 +177,11 @@ def test_the_refresh_request_is_a_refresh_grant_for_the_stored_token():
 
 TOKEN_PATH = ConnectionPath(
     id="token",
-    token=TokenPrompt(
+    method=TokenPrompt(
         label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
     ),
 )
-OAUTH_PATH = ConnectionPath(id="oauth", provider=PROVIDER)
+OAUTH_PATH = ConnectionPath(id="oauth", method=PROVIDER)
 
 
 def test_a_token_path_is_handed_its_stored_credentials_untouched():

@@ -46,7 +46,7 @@ TOKEN = TokenPrompt(
 MANIFEST = Manifest(
     id="github",
     display_name="GitHub",
-    connections=(ConnectionPath(id="token", token=TOKEN),),
+    connections=(ConnectionPath(id="token", method=TOKEN),),
     # One refresh costs seven searches against a limit of thirty a minute, so
     # this is the floor a flick between tabs must not go under, not just a
     # freshness preference.

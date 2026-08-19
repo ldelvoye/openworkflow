@@ -15,6 +15,7 @@ import httpx
 from smorg.auth import oauth
 from smorg.auth.oauth import OAuthError, ProviderConfig
 from smorg.auth.store import Credentials, get_credentials, now, set_credentials
+from smorg.auth.token import TokenPrompt
 from smorg.core.contract import AuthExpired, ConnectionPath
 
 # How close to expiry counts as expired: covers clock skew against the
@@ -48,10 +49,11 @@ def credentials_for(
     pasted token has nothing behind it to renew, so it is handed over as
     stored and the service's own rejection is what reports it as expired.
     """
-    if path.provider is None:
+    method = path.method
+    if isinstance(method, TokenPrompt):
         return get_credentials(integration_id)
 
-    return fresh_credentials(integration_id, path.provider, client_id, http)
+    return fresh_credentials(integration_id, method, client_id, http)
 
 
 def fresh_credentials(

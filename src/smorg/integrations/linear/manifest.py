@@ -28,7 +28,7 @@ PROVIDER = ProviderConfig(
 MANIFEST = Manifest(
     id="linear",
     display_name="Linear",
-    connections=(ConnectionPath(id="mcp", provider=PROVIDER),),
+    connections=(ConnectionPath(id="mcp", method=PROVIDER),),
     # Long enough that flicking between tabs does not refetch constantly, short
     # enough that a glance after stepping away is current.
     stale_after=timedelta(minutes=5),

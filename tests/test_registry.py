@@ -6,7 +6,6 @@ import pytest
 
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
-from smorg.auth.token import TokenPrompt
 from smorg.core.contract import (
     Action,
     ActionClass,
@@ -31,10 +30,7 @@ PROVIDER = ProviderConfig(
     scopes=("read",),
     client_name="smorg",
 )
-TOKEN = TokenPrompt(
-    label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
-)
-DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", provider=PROVIDER),)
+DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", method=PROVIDER),)
 
 
 def manifest(
@@ -105,23 +101,6 @@ def test_manifest_rejects_a_reserved_shell_key():
         )
 
 
-def test_a_connection_path_declares_a_provider_or_a_token():
-    """Both kinds are legal; which one a path is decides the whole connect
-    flow, so this is the control that keeps the two rejections below honest."""
-    assert ConnectionPath(id="mcp", provider=PROVIDER).token is None
-    assert ConnectionPath(id="token", token=TOKEN).provider is None
-
-
-def test_a_connection_path_naming_neither_is_rejected():
-    with pytest.raises(ValueError, match="exactly one"):
-        ConnectionPath(id="nothing")
-
-
-def test_a_connection_path_naming_both_is_rejected():
-    with pytest.raises(ValueError, match="exactly one"):
-        ConnectionPath(id="both", provider=PROVIDER, token=TOKEN)
-
-
 def test_manifest_rejects_empty_connections():
     with pytest.raises(ValueError, match="no connection path"):
         manifest(connections=())
@@ -129,18 +108,18 @@ def test_manifest_rejects_empty_connections():
 
 def test_manifest_rejects_duplicate_connection_ids():
     with pytest.raises(ValueError, match="duplicate connection path"):
-        manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),) * 2)
+        manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),) * 2)
 
 
 def test_connection_with_no_chosen_id_returns_the_first_declared_path():
-    mcp = ConnectionPath(id="mcp", provider=PROVIDER)
-    api_key = ConnectionPath(id="api-key", provider=PROVIDER)
+    mcp = ConnectionPath(id="mcp", method=PROVIDER)
+    api_key = ConnectionPath(id="api-key", method=PROVIDER)
     declared = manifest(connections=(mcp, api_key))
     assert declared.connection(None) is mcp
 
 
 def test_connection_with_an_unknown_id_names_the_declared_ones():
-    declared = manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),))
+    declared = manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),))
     with pytest.raises(ValueError, match="mcp") as excinfo:
         declared.connection("nope")
     assert "nope" in str(excinfo.value)
