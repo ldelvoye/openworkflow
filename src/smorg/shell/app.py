@@ -376,6 +376,18 @@ class SmorgApp(App[None]):
         if panel is not None:
             panel.mark_all_seen()
 
+    def action_mark_unseen(self) -> None:
+        """Return the selected item's change mark in the active tab.
+
+        Shell-level (not a panel binding) so every future integration gets
+        it for free; a panel with no selection marks nothing.
+        """
+        if not self.active_tab:
+            return
+        panel = self._panel_of(self.active_tab)
+        if panel is not None:
+            panel.mark_unseen()
+
     def on_panel_detail_requested(self, message: Panel.DetailRequested) -> None:
         # Only the focused panel of the visible tab can post this, so the
         # active tab names the integration that owns the item.

@@ -31,6 +31,7 @@ SHELL_KEYS = (
     ShellKey("l", "next_tab", "switch tab", key_display="h/l"),
     ShellKey("r", "refresh", "refresh"),
     ShellKey("m", "mark_all_seen", "mark all seen"),
+    ShellKey("u", "mark_unseen", "mark unseen"),
     ShellKey("question_mark", "help", "help"),
     ShellKey("ctrl+p", "command_palette", "menu", show=False),
     ShellKey("q", "quit", "quit"),

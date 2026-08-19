@@ -927,6 +927,75 @@ async def test_a_failed_mark_all_seen_save_notifies_instead_of_crashing(monkeypa
     assert notified == ["No space left on device"]
 
 
+# --- Mark-unseen key ---
+
+
+@pytest.mark.asyncio
+async def test_u_marks_only_the_selected_item_unseen(monkeypatch):
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
+    issues = (issue("ENG-1"), issue("ENG-2"))
+
+    def fake_refresh(self, integration_id, panel, force=False, on_stage=None):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        panel = app.query_one(LinearPanel)
+        await pilot.press("m")
+        await pilot.pause()
+        assert panel.seen.is_changed("linear", issues[0]) is False
+
+        await pilot.press("u")
+        await pilot.pause()
+
+    assert panel.seen.is_changed("linear", issues[0]) is True
+    assert panel.seen.is_changed("linear", issues[1]) is False
+
+
+@pytest.mark.asyncio
+async def test_u_on_an_unsupported_tab_is_a_quiet_no_op():
+    # "alpha" has no registered integration, so its Panel has no selection —
+    # marking nothing unseen is a genuine no-op, not a special case to guard.
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+    # No exception is the assertion.
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mark_unseen_save_notifies_instead_of_crashing(monkeypatch):
+    # Same policy as mark-all-seen's save failure, re-asserted at this
+    # call site because call sites regress independently.
+    def refuse_save(self):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("smorg.core.state.SeenState.save", refuse_save)
+    issues = (issue("ENG-1"),)
+
+    def fake_refresh(self, integration_id, panel, force=False, on_stage=None):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+
+    assert notified == ["No space left on device"]
+
+
 # --- The refresh key's staged feedback ---
 
 

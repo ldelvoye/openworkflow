@@ -25,10 +25,10 @@ its seen marks.
 Once released, `uvx smorg` will fetch and run it directly. That first run
 installs the package before the screen paints, so expect a brief blank terminal.
 
-Inside the dashboard: `h`/`l` switch tabs, `up`/`down` select an
-item, `o` opens it in your browser, `r` refreshes, `m` marks the tab's changes
-seen, `?` shows the current tab's keys, `^ + p` opens the menu (add/remove
-integrations, screenshots), `q` quits.
+Inside the dashboard: `h`/`l` switch tabs, `up`/`down` select an item, `o`
+opens it in your browser, `r` refreshes, `m` marks the tab's changes seen,
+`u` marks the selected item unseen, `?` shows the current tab's keys, `^ + p`
+opens the menu (add/remove integrations, screenshots), `q` quits.
 
 ## Status
 
