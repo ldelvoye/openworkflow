@@ -6,6 +6,7 @@ import pytest
 
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
+from smorg.auth.token import TokenPrompt
 from smorg.core.contract import (
     Action,
     ActionClass,
@@ -29,6 +30,9 @@ PROVIDER = ProviderConfig(
     metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",
+)
+TOKEN = TokenPrompt(
+    label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
 )
 DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", provider=PROVIDER),)
 
@@ -99,6 +103,23 @@ def test_manifest_rejects_a_reserved_shell_key():
         manifest(
             actions=(Action(id="reload", label="Reload", key="r", action_class=ActionClass.LOCAL),)
         )
+
+
+def test_a_connection_path_declares_a_provider_or_a_token():
+    """Both kinds are legal; which one a path is decides the whole connect
+    flow, so this is the control that keeps the two rejections below honest."""
+    assert ConnectionPath(id="mcp", provider=PROVIDER).token is None
+    assert ConnectionPath(id="token", token=TOKEN).provider is None
+
+
+def test_a_connection_path_naming_neither_is_rejected():
+    with pytest.raises(ValueError, match="exactly one"):
+        ConnectionPath(id="nothing")
+
+
+def test_a_connection_path_naming_both_is_rejected():
+    with pytest.raises(ValueError, match="exactly one"):
+        ConnectionPath(id="both", provider=PROVIDER, token=TOKEN)
 
 
 def test_manifest_rejects_empty_connections():

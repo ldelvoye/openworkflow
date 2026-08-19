@@ -16,7 +16,7 @@ from textual.command import CommandPalette
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from smorg.auth.refresh import fresh_credentials
+from smorg.auth.refresh import credentials_for
 from smorg.auth.store import CredentialStoreError, now
 from smorg.core.config import TabConfig, resolve_connection
 from smorg.core.contract import (
@@ -412,7 +412,7 @@ class SmorgApp(App[None]):
             return
         try:
             with httpx.Client(timeout=30) as http:
-                credentials = fresh_credentials(integration_id, path.provider, client_id, http)
+                credentials = credentials_for(integration_id, path, client_id, http)
                 if credentials is None:
                     self.call_from_thread(panel.show_detail_error, key, "not connected")
                     return
@@ -495,7 +495,7 @@ class SmorgApp(App[None]):
 
         try:
             with httpx.Client(timeout=30) as http:
-                credentials = fresh_credentials(integration_id, path.provider, client_id, http)
+                credentials = credentials_for(integration_id, path, client_id, http)
                 if credentials is None:
                     self.call_from_thread(self._show_error, panel, "not connected")
                     return False

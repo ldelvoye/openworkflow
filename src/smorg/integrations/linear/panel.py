@@ -202,6 +202,9 @@ class LinearPanel(Panel):
             ordered_issues.extend(groups[status])
         return tuple(ordered_issues)
 
+    def ready_text(self) -> str:
+        return self.render_ready().plain.strip()
+
     def render_ready(self) -> Text:
         issues = self._grouped()
         cursor = self._clamped_cursor(len(issues))

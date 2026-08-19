@@ -12,7 +12,7 @@ What's ahead, as feature sets per release. Design history lives in git;
 
 ## Later, deliberately unscheduled
 
-- GitHub and Google Calendar integrations
+- Google Calendar integration
 - `remote` (write) actions, behind confirmation and explicit write scopes
 - Mouse support, desktop notifications, and background polling stay excluded
   by design unless revisited

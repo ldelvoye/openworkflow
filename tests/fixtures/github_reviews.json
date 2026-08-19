@@ -1,0 +1,28 @@
+[
+  {
+    "id": 3001,
+    "node_id": "PRR_kwDOAAAAAA",
+    "state": "CHANGES_REQUESTED",
+    "body": "One more pass on the naming, please.",
+    "submitted_at": "2026-08-12T10:00:00Z",
+    "html_url": "https://github.com/octocat/hello/pull/42#pullrequestreview-3001",
+    "user": {
+      "login": "hubot",
+      "id": 2,
+      "type": "User"
+    }
+  },
+  {
+    "id": 3002,
+    "node_id": "PRR_kwDOAAAAAB",
+    "state": "APPROVED",
+    "body": "",
+    "submitted_at": "2026-08-13T11:00:00Z",
+    "html_url": "https://github.com/octocat/hello/pull/42#pullrequestreview-3002",
+    "user": {
+      "login": "monalisa",
+      "id": 3,
+      "type": "User"
+    }
+  }
+]

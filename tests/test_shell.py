@@ -367,8 +367,8 @@ class _RaisingIntegration:
 
 def _stub_credentials(monkeypatch) -> None:
     monkeypatch.setattr(
-        "smorg.shell.app.fresh_credentials",
-        lambda integration_id, provider, client_id, http: CREDENTIALS,
+        "smorg.shell.app.credentials_for",
+        lambda integration_id, path, client_id, http: CREDENTIALS,
     )
 
 
@@ -732,11 +732,11 @@ async def test_every_screenshot_clears_the_readability_floor(palette):
 async def test_the_tab_client_id_reaches_the_refresh_layer(monkeypatch):
     seen: list[tuple[str, str | None]] = []
 
-    def fake_fresh(integration_id, provider, client_id, http):
+    def fake_fresh(integration_id, path, client_id, http):
         seen.append((integration_id, client_id))
         return None
 
-    monkeypatch.setattr("smorg.shell.app.fresh_credentials", fake_fresh)
+    monkeypatch.setattr("smorg.shell.app.credentials_for", fake_fresh)
     app = SmorgApp(tabs=(TabConfig("linear", client_id="client-42"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()
@@ -746,10 +746,10 @@ async def test_the_tab_client_id_reaches_the_refresh_layer(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_failed_refresh_shows_the_reconnect_hint(monkeypatch):
-    def fake_fresh(integration_id, provider, client_id, http):
+    def fake_fresh(integration_id, path, client_id, http):
         raise AuthExpired("token refresh failed (invalid_grant)")
 
-    monkeypatch.setattr("smorg.shell.app.fresh_credentials", fake_fresh)
+    monkeypatch.setattr("smorg.shell.app.credentials_for", fake_fresh)
     app = SmorgApp(tabs=(TabConfig("linear"),))
     async with app.run_test() as pilot:
         await pilot.app.workers.wait_for_complete()

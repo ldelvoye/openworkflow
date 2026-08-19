@@ -4,11 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from textual.widgets import Static, TabPane
+from textual.widgets import Input, Static, TabPane
 
 from smorg.auth.login import LoginCancelled
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials, CredentialStoreError, get_credentials, set_credentials
+from smorg.auth.token import TokenPrompt
 from smorg.core.config import Config, TabConfig, load_config, save_config
 from smorg.core.contract import ConnectionPath, Item, Manifest
 from smorg.core.removal import RemovalResult
@@ -18,6 +19,7 @@ from smorg.shell.app import SmorgApp
 from smorg.shell.menu import (
     ADD_COMMAND,
     REMOVE_COMMAND,
+    AddableIntegration,
     AddConnectionList,
     AddIntegrationList,
     ConnectModal,
@@ -25,7 +27,9 @@ from smorg.shell.menu import (
     RemovableTab,
     RemoveConfirmModal,
     RemoveIntegrationList,
+    TokenModal,
     addable_integrations,
+    connect_screen_for,
     removable_tabs,
 )
 from smorg.shell.panel import Panel
@@ -43,6 +47,22 @@ WIDGET_PROVIDER = ProviderConfig(
     scopes=("read",),
     client_name="smorg",
 )
+WIDGET_TOKEN = TokenPrompt(
+    label="Widget access token",
+    help_url="https://widget.example.invalid/settings/tokens",
+    scopes_hint="read access to widgets",
+)
+# Wider than the modal's box on every line, so what it draws can only be
+# right if the box wrapped it.
+WORDY_TOKEN = TokenPrompt(
+    label="Widget access token",
+    help_url="https://widget.example.invalid/settings/tokens/new",
+    scopes_hint="read access to widgets and their metadata, or the widgets scope",
+)
+TOKEN_PATH = ConnectionPath(id="token", token=WIDGET_TOKEN)
+WORDY_TOKEN_PATH = ConnectionPath(id="token", token=WORDY_TOKEN)
+OAUTH_PATH = ConnectionPath(id="mcp", provider=WIDGET_PROVIDER)
+PASTED = "widget_pat_0abcdefghijklmnop"
 
 
 async def _wait_until(pilot, condition) -> None:
@@ -53,6 +73,14 @@ async def _wait_until(pilot, condition) -> None:
 
 def item(identifier: str = "ENG-1") -> Item:
     return Item(id=identifier, updated_at=NOW, url="https://example.invalid/1")
+
+
+def _drawn(widget: Static) -> str:
+    """A widget's rendered lines as one whitespace-normalized string — so an
+    assertion reads the text without caring where it wrapped."""
+    lines = [widget.render_line(y).text for y in range(widget.size.height)]
+    joined = " ".join(lines)
+    return " ".join(joined.split())
 
 
 def fake_manifest(
@@ -158,15 +186,15 @@ async def test_the_remove_command_is_offered_only_when_a_tab_is_configured():
     async with app.run_test() as pilot:
         provider = MenuCommands(pilot.app.screen)
         hits = [hit async for hit in provider.discover()]
-        # "linear" is unconfigured here, so it is addable — ADD_COMMAND may
-        # legitimately show up too; only REMOVE_COMMAND is under test.
+        # Every registered integration is unconfigured here, so they are all
+        # addable — ADD_COMMAND may legitimately show up too; only
+        # REMOVE_COMMAND is under test.
         assert REMOVE_COMMAND not in [hit.text for hit in hits]
 
         save_config(Config(tabs=(TabConfig(integration="linear"),)))
         hits = [hit async for hit in provider.discover()]
 
-    assert len(hits) == 1
-    assert hits[0].text == REMOVE_COMMAND
+    assert REMOVE_COMMAND in [hit.text for hit in hits]
 
 
 # --- The tab picker ---
@@ -634,3 +662,193 @@ async def test_a_credential_store_failure_revokes_the_token_and_stores_nothing(
 
     assert len(revoked) == 1
     assert load_config().tabs == ()
+
+
+# --- The token connect flow ---
+
+
+def test_a_token_path_leads_to_the_token_modal():
+    """The path decides the flow: a browser wait and one field of input are
+    not interchangeable, and nothing downstream re-derives which it is."""
+    widget = AddableIntegration("widget", "Widget", (TOKEN_PATH,))
+
+    assert isinstance(connect_screen_for(widget, TOKEN_PATH), TokenModal)
+
+
+def test_an_oauth_path_still_leads_to_the_browser_modal():
+    widget = AddableIntegration("widget", "Widget", (OAUTH_PATH,))
+
+    assert isinstance(connect_screen_for(widget, OAUTH_PATH), ConnectModal)
+
+
+@pytest.mark.asyncio
+async def test_the_token_modal_says_where_to_get_one_and_what_it_needs(registered):
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        screen = TokenModal("widget", "Widget", TOKEN_PATH)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        text = screen.body_text()
+
+    assert WIDGET_TOKEN.help_url in text
+    assert WIDGET_TOKEN.scopes_hint in text
+
+
+@pytest.mark.asyncio
+async def test_the_token_modal_wraps_its_instructions_instead_of_cutting_them(registered):
+    """A URL and a scope list are only useful whole. Instructions wider than
+    the box wrap onto another line; they never run past its border, where the
+    box would cut off the rest and leave a truncated URL to follow."""
+    registered(fake_manifest("widget", connections=(WORDY_TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", WORDY_TOKEN_PATH))
+        await pilot.pause()
+        body = app.screen.query_one("#body", Static)
+        drawn = _drawn(body)
+        body_width = body.size.width
+        box_width = app.screen.query_one(".box").content_size.width
+
+    assert body_width <= box_width
+    assert WORDY_TOKEN.help_url in drawn
+    assert WORDY_TOKEN.scopes_hint in drawn
+
+
+@pytest.mark.asyncio
+async def test_the_entry_field_is_masked(registered):
+    """A live credential typed into a terminal outlives the screen it was
+    typed on, in scrollback."""
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+
+        assert app.screen.query_one(Input).password
+
+
+@pytest.mark.asyncio
+async def test_submitting_a_token_stores_it_records_the_tab_and_opens_it(registered):
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+
+        app.screen.query_one(Input).value = PASTED
+        await pilot.press("enter")
+        await _wait_until(pilot, lambda: not isinstance(app.screen, TokenModal))
+        await pilot.pause()
+
+        assert app.tab_ids == ("widget",)
+
+    stored = get_credentials("widget")
+    assert stored is not None
+    assert stored.access_token == PASTED
+    assert load_config().tabs == (TabConfig(integration="widget", connection="token"),)
+
+
+@pytest.mark.asyncio
+async def test_a_token_tab_records_no_client_id(registered):
+    """There is no client to register: a client id on the entry would send
+    removal looking for a revocation endpoint that does not exist."""
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+        app.screen.query_one(Input).value = PASTED
+        await pilot.press("enter")
+        await _wait_until(pilot, lambda: not isinstance(app.screen, TokenModal))
+
+    assert load_config().tabs[0].client_id is None
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_entry_keeps_the_modal_open_and_stores_nothing(registered, monkeypatch):
+    """The fix is another paste; dismissing would cost the whole menu to
+    get back here."""
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, TokenModal)
+        assert app.screen.query_one(Input).value == ""
+
+    assert get_credentials("widget") is None
+    assert notified == ["no token entered"]
+
+
+@pytest.mark.asyncio
+async def test_escape_leaves_the_token_modal_without_storing(registered):
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+        app.screen.query_one(Input).value = PASTED
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, TokenModal)
+
+    assert get_credentials("widget") is None
+    assert load_config().tabs == ()
+
+
+@pytest.mark.asyncio
+async def test_a_store_that_refuses_a_token_records_no_tab(registered, monkeypatch):
+    """Credentials are written before the config entry, so a refused store
+    must not leave a tab pointing at a token that never landed."""
+    registered(fake_manifest("widget", connections=(TOKEN_PATH,)))
+
+    def refuse(integration_id, credentials):
+        raise CredentialStoreError("keychain refused")
+
+    monkeypatch.setattr("smorg.shell.menu.set_credentials", refuse)
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(TokenModal("widget", "Widget", TOKEN_PATH))
+        await pilot.pause()
+        app.screen.query_one(Input).value = PASTED
+        await pilot.press("enter")
+        await _wait_until(pilot, lambda: not isinstance(app.screen, TokenModal))
+
+        assert app.tab_ids == ()
+
+    assert load_config().tabs == ()
+    assert notified == ["keychain refused"]

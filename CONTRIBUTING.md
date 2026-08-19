@@ -35,7 +35,8 @@ not registered fails with "not supported" rather than half-working.
 ### What you own
 
 - **`manifest.py`** — id, display name, declared connection paths (each a
-  `ConnectionPath` naming its `ProviderConfig`), `stale_after`, declared
+  `ConnectionPath` naming either a `ProviderConfig` to run OAuth against or a
+  `TokenPrompt` asking for a token the user pastes in), `stale_after`, declared
   actions (each tagged `local` / `launch`; `remote` is not implemented), and
   your panel class.
 - **`source.py`** — `fetch(credentials, http)` returning your `Item` subclass,
@@ -46,17 +47,23 @@ not registered fails with "not supported" rather than half-working.
   that order.
 - **`panel.py`** — extend `Panel`, override its render hooks, and decide your
   policy: grouping, glyphs, ordering, and _when an interaction marks an item
-  seen_ (an opt-in capability — see "What the core provides").
+  seen_ (an opt-in capability — see "What the core provides"). `render_ready()`
+  returns any renderable, so a tab is not obliged to be one list — GitHub's is
+  two columns. Override `ready_text()` beside it whenever `render_ready()` is
+  not a `Text`; that is what the stale banner sits above and what your tests
+  read.
 
 ## What the core provides
 
 **Runs for you, no code on your side:**
 
-- Credential storage, OAuth, and refresh through your declared connection
-  paths (`ConnectionPath` / `ProviderConfig`) — OAuth is named as *a*
-  connection capability today, not *the* mechanism, so a future
-  direct-API-key path can land beside it as a second one later. `fetch`
-  receives credentials per call; you never touch or persist a token yourself.
+- Credential storage and, for an OAuth path, the browser login and refresh —
+  all through your declared connection paths. Declaring a `TokenPrompt`
+  instead gets you the masked in-app field, the `getpass` prompt on the CLI,
+  and the same storage; there is nothing to refresh, so a token that stops
+  working reaches you as `AuthExpired` and the tab says to connect again.
+  `fetch` receives credentials per call; you never touch or persist a token
+  yourself.
 - Refresh scheduling that follows attention, not a clock.
 - Per-tab failure isolation driven by the `IntegrationError` taxonomy
   (`AuthExpired` / `Unavailable` / `Malformed`).
@@ -140,8 +147,9 @@ re-asserted at each call site, since call sites regress independently.
 - **Reserved keys can't be bound.** The shell owns its keymap
   (`core/keys.py: RESERVED_KEYS`); a manifest binding one is rejected at
   construction.
-- **No tokens in output.** Error messages carry no credential material;
-  server-controlled text is sanitized before it can reach a terminal.
+- **No tokens in output.** Error messages carry no credential material —
+  including a token a user typed and got wrong; server-controlled text is
+  sanitized before it can reach a terminal.
 
 ## Releasing
 

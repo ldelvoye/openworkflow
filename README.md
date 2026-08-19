@@ -16,11 +16,14 @@ Not published to PyPI yet. From a checkout:
 
     uv run smorg run
 
-Then press `^ + p` and pick "Add integration" to connect one.
+Then press `^ + p` and pick "Add integration" to connect one. Linear opens a
+browser; GitHub asks for a personal access token you create yourself, and tells
+you where and with what access. Either way the token goes to your OS keychain.
+
 `smorg connect <integration>` does the same from the CLI, and is also how you
-re-authenticate a tab whose token has expired. `smorg logout <integration>`
-(or "Remove integration" from `^ + p`) removes a tab, its stored token, and
-its seen marks.
+re-authenticate a tab whose token has expired or been revoked — a tab in that
+state says so and names the command. `smorg logout <integration>` (or "Remove
+integration" from `^ + p`) removes a tab, its stored token, and its seen marks.
 
 Once released, `uvx smorg` will fetch and run it directly. That first run
 installs the package before the screen paints, so expect a brief blank terminal.
@@ -32,5 +35,9 @@ opens the menu (add/remove integrations, screenshots), `q` quits.
 
 ## Status
 
-Linear is the first dish. See [docs/ROADMAP.md](docs/ROADMAP.md) for what's
-ahead.
+Two dishes on the table: **Linear**, showing the issues assigned to you, and
+**GitHub**, a two-column pull request board — what is waiting on your review on
+the left, what is waiting on everyone else for your own pull requests on the
+right. In the GitHub tab, `left`/`right` move between the columns.
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what's ahead.

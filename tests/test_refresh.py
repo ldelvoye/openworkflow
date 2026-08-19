@@ -5,9 +5,10 @@ import httpx
 import pytest
 
 from smorg.auth.oauth import ProviderConfig
-from smorg.auth.refresh import EXPIRY_MARGIN, fresh_credentials
+from smorg.auth.refresh import EXPIRY_MARGIN, credentials_for, fresh_credentials
 from smorg.auth.store import Credentials, get_credentials, set_credentials
-from smorg.core.contract import AuthExpired
+from smorg.auth.token import TokenPrompt
+from smorg.core.contract import AuthExpired, ConnectionPath
 
 PROVIDER = ProviderConfig(
     metadata_url="https://auth.invalid/.well-known/oauth-authorization-server",
@@ -170,3 +171,39 @@ def test_the_refresh_request_is_a_refresh_grant_for_the_stored_token():
     assert forms[0]["grant_type"] == "refresh_token"
     assert forms[0]["refresh_token"] == "refresh-1"
     assert forms[0]["client_id"] == "client-1"
+
+
+# --- A token path has nothing behind it to renew ---
+
+TOKEN_PATH = ConnectionPath(
+    id="token",
+    token=TokenPrompt(
+        label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
+    ),
+)
+OAUTH_PATH = ConnectionPath(id="oauth", provider=PROVIDER)
+
+
+def test_a_token_path_is_handed_its_stored_credentials_untouched():
+    """Even sitting inside the expiry margin: nothing here issued this token,
+    so there is no endpoint that would renew it, and the service rejecting it
+    is what reports it expired."""
+    expiring = credentials(EXPIRY_MARGIN / 2)
+    set_credentials("github", expiring)
+    hits: list[str] = []
+
+    resolved = credentials_for("github", TOKEN_PATH, None, refresh_server(hits))
+
+    assert resolved == expiring
+    assert hits == []
+
+
+def test_an_oauth_path_still_refreshes_through_the_same_resolver():
+    set_credentials("linear", credentials(EXPIRY_MARGIN / 2))
+    hits: list[str] = []
+
+    resolved = credentials_for("linear", OAUTH_PATH, "client-1", refresh_server(hits))
+
+    assert resolved is not None
+    assert resolved.access_token == "access-new"
+    assert hits != []

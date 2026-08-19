@@ -35,6 +35,10 @@ class ModalBox(ModalScreen[None]):
     /* Static has no width of its own, so inside this auto-width parent it
      * falls back to filling a not-yet-known width — a circular dependency
      * that renders an empty box. Explicit auto width breaks the cycle.
+     *
+     * auto alone measures the longest line and keeps it, so prose wider than
+     * the box's cap is cut off at the border rather than wrapped; max-width
+     * caps the measurement at the box's content width so it wraps instead.
      */
-    ModalBox Static { width: auto; }
+    ModalBox Static { width: auto; max-width: 100%; }
     """

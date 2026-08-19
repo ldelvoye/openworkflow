@@ -1,8 +1,10 @@
 """What an integration must provide, and the errors it is allowed to raise.
 
-Provisional. This has exactly one consumer, and a contract shaped against a
-single implementation is reliably wrong for the second — so it carries nothing
-that the first integration does not need. Generalise when there are two.
+Still narrow on purpose. Two integrations have shaped this now, and the one
+thing the second needed that the first did not is a connection path that asks
+for a pasted token instead of running OAuth — so that is what ConnectionPath
+grew, and nothing else. A field only one integration would ever read belongs to
+that integration, not here.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import httpx
 
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
+from smorg.auth.token import TokenPrompt
 from smorg.core.keys import RESERVED_KEYS
 
 if TYPE_CHECKING:
@@ -68,12 +71,25 @@ class Item:
 
 @dataclass(frozen=True)
 class ConnectionPath:
-    """One way an integration can be reached — OAuth via ProviderConfig is
-    the only kind implemented. A manifest can declare several so the
-    management UI can name and offer each one."""
+    """One way an integration can be reached: an OAuth provider to authorize
+    against, or a token the user creates in the service and pastes in. A
+    manifest can declare several so the management UI can name and offer each
+    one.
+
+    Which of the two a path is decides the whole connect flow — a browser and a
+    refreshable token on one side, one field of input and nothing to renew on
+    the other — so exactly one is given, and neither may be inferred.
+    """
 
     id: str
-    provider: ProviderConfig
+    provider: ProviderConfig | None = None
+    token: TokenPrompt | None = None
+
+    def __post_init__(self) -> None:
+        if (self.provider is None) == (self.token is None):
+            raise ValueError(
+                f"connection path {self.id!r} must name exactly one of provider or token"
+            )
 
 
 def _duplicates(values: Sequence[str]) -> list[str]:
