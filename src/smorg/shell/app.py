@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 
 import httpx
@@ -32,6 +32,7 @@ from smorg.core.state import SeenState
 from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display, symbolize_key_display
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
+from smorg.shell.refresh_indicator import RefreshIndicator, RefreshStage
 from smorg.shell.terminal_palette import TerminalPalette, readable_theme
 
 
@@ -77,7 +78,7 @@ def _lowercase_leading_letter(text: str) -> str:
 
 class SmorgApp(App[None]):
     CSS = """
-    Screen { layout: vertical; }
+    Screen { layout: vertical; layers: base refresh-indicator; }
 
     /* Textual pins Toast's :ansi background to literal ansi_black via
      * $ansi-background — a dark box on light terminals. ansi_default tracks the
@@ -189,6 +190,7 @@ class SmorgApp(App[None]):
                 with TabPane(tab, id=tab):
                     yield self._panel_for(tab)
         yield hint
+        yield RefreshIndicator()
         yield Footer()
 
     def _sync_tab_visibility(self) -> None:
@@ -351,8 +353,16 @@ class SmorgApp(App[None]):
         if not self.active_tab:
             return
         panel = self._panel_of(self.active_tab)
-        if panel is not None:
-            self.refresh_tab(self.active_tab, panel, force=True)
+        if panel is None:
+            return
+        indicator = self.query_one(RefreshIndicator)
+        indicator.show_stage(RefreshStage.CONNECTING)
+
+        def report(stage: RefreshStage) -> None:
+            # Runs on the worker thread; the indicator is UI-thread-only.
+            self.call_from_thread(indicator.show_stage, stage)
+
+        self.refresh_tab(self.active_tab, panel, force=True, on_stage=report)
 
     def action_mark_all_seen(self) -> None:
         """Clear the active tab's change marks in one stroke.
@@ -409,25 +419,59 @@ class SmorgApp(App[None]):
         self.call_from_thread(panel.show_detail, key, detail)
 
     @work(thread=True)
-    def refresh_tab(self, integration_id: str, panel: Panel, force: bool = False) -> None:
+    def refresh_tab(
+        self,
+        integration_id: str,
+        panel: Panel,
+        force: bool = False,
+        on_stage: Callable[[RefreshStage], None] | None = None,
+    ) -> None:
         """Fetch integration_id's items off the UI thread and hand results to panel.
 
-        panel is passed in rather than queried here since this body runs off
+        panel is passed in rather than queried here since the body runs off
         the UI thread once @work(thread=True) dispatches it, and Textual
         widgets are not thread-safe to touch from anywhere else. Every
-        mutation below crosses back via call_from_thread.
+        mutation crosses back via call_from_thread.
+
+        on_stage, when given, receives the refresh's key stages (CONNECTING is
+        shown by the caller before dispatch): _fetch_tab reports FETCHING, and
+        this wrapper reports the terminal stage — DONE only when fresh items
+        landed, FAILED otherwise — so the indicator can never hang mid-bar.
+        Calls to on_stage happen on the worker thread; a callback that
+        touches widgets must marshal through call_from_thread itself.
         """
+        completed = False
+        try:
+            completed = self._fetch_tab(integration_id, panel, force, on_stage)
+        finally:
+            if on_stage is not None:
+                if completed:
+                    terminal_stage = RefreshStage.DONE
+                else:
+                    terminal_stage = RefreshStage.FAILED
+                on_stage(terminal_stage)
+
+    def _fetch_tab(
+        self,
+        integration_id: str,
+        panel: Panel,
+        force: bool,
+        on_stage: Callable[[RefreshStage], None] | None,
+    ) -> bool:
+        """The fetch behind refresh_tab, on the worker thread: resolve the
+        connection, fetch, and hand results or errors to panel. Returns
+        whether fresh items landed."""
         try:
             integration = get_integration(integration_id)
         except UnknownIntegration:
             # _panel_for already put this tab in its own error state; there is
             # nothing this integration id could fetch.
-            return
+            return False
 
         fetched_at = self._fetched_at.get(integration_id)
         if not force and fetched_at is not None:
             if now() - fetched_at < integration.manifest.stale_after:
-                return
+                return False
 
         try:
             path, client_id = resolve_connection(
@@ -435,34 +479,39 @@ class SmorgApp(App[None]):
             )
         except ValueError as error:
             self.call_from_thread(self._show_error, panel, str(error))
-            return
+            return False
 
         try:
             with httpx.Client(timeout=30) as http:
                 credentials = fresh_credentials(integration_id, path.provider, client_id, http)
                 if credentials is None:
                     self.call_from_thread(self._show_error, panel, "not connected")
-                    return
+                    return False
+                # The bar's connecting→fetching boundary: credentials are
+                # settled, the service call is next.
+                if on_stage is not None:
+                    on_stage(RefreshStage.FETCHING)
                 items = tuple[Item, ...](integration.fetch(credentials, http))
         except CredentialStoreError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
-            return
+            return False
         except Malformed as error:
             # The tab itself is broken, not just momentarily unreachable — stale
             # data would promise a recovery that a shape mismatch cannot deliver.
             self.call_from_thread(self._show_error, panel, str(error))
-            return
+            return False
         except AuthExpired as error:
             self.call_from_thread(
                 self._show_error, panel, f"{error} — run: smorg connect {integration_id}"
             )
-            return
+            return False
         except IntegrationError as error:
             self.call_from_thread(self._show_error, panel, str(error), keep_items=True)
-            return
+            return False
 
         self._fetched_at[integration_id] = now()
         self.call_from_thread(self._show_items, panel, items)
+        return True
 
     def _show_items(self, panel: Panel, items: tuple[Item, ...]) -> None:
         panel.items = items
