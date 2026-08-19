@@ -52,35 +52,45 @@ class HelpOverlay(ModalBox):
 def _rendered(rows: list[Row]) -> list[str]:
     if not rows:
         return []
-    keys = [symbolize_key_display(key) for key, _ in rows]
+    keys = [key for key, _ in rows]
     width = max(len(key) for key in keys)
     return [f"  {key.ljust(width)}  {label}" for key, (_, label) in zip(keys, rows, strict=True)]
 
 
 def merge_key_display(existing: str, new: str) -> str:
-    """One row's keys, a shared modifier stated once: "shift+↑" + "shift+↓"
-    -> "shift+↑/↓"; different modifiers stay fully spelled out. Must run
-    before symbolize_key_display — factoring compares the "+"-notation.
+    """One row's keys, a shared modifier stated once: "⇧ + ↑" + "⇧ + ↓"
+    -> "⇧ + ↑/↓"; different modifiers stay fully spelled out. Inputs are
+    already-symbolized displays, so factoring compares the " + " notation.
     """
-    existing_prefix, _, existing_base = existing.rpartition("+")
-    new_prefix, _, new_base = new.rpartition("+")
+    existing_prefix, _, existing_base = existing.rpartition(" + ")
+    new_prefix, _, new_base = new.rpartition(" + ")
     if existing_prefix != new_prefix:
         return f"{existing}/{new}"
     if not existing_prefix:
         return f"{existing_base}/{new_base}"
-    return f"{existing_prefix}+{existing_base}/{new_base}"
+    return f"{existing_prefix} + {existing_base}/{new_base}"
 
 
-# Only shift has a binding today; add modifiers here as they appear.
-SYMBOLS = {"shift+": "⇧ + "}
+# Modifier words become glyphs with an explicit " + " separator. Only
+# modifiers actually reachable through a real key binding are mapped here —
+# add the next one as it shows up in a binding. ctrl is absent because
+# Textual fuses it into a caret ("^p"), handled structurally in
+# _symbolize_part.
+SYMBOLS = {"shift+": "⇧ + ", "super+": "⌘ + "}
 
 
 def symbolize_key_display(key: str) -> str:
-    """Modifier words become glyphs: "shift+↑/↓" -> "⇧ + ↑/↓"."""
+    """Modifier prefixes become symbols joined with an explicit "+":
+    "shift+x" -> "⇧ + x", "^p" -> "^ + p", "super+k" -> "⌘ + k"."""
     parts = key.split("/")
-    for index, part in enumerate(parts):
-        for word, symbol in SYMBOLS.items():
-            if part.startswith(word):
-                parts[index] = symbol + part[len(word) :]
-                break
-    return "/".join(parts)
+    symbolized = [_symbolize_part(part) for part in parts]
+    return "/".join(symbolized)
+
+
+def _symbolize_part(part: str) -> str:
+    for word, symbol in SYMBOLS.items():
+        if part.startswith(word):
+            return symbol + _symbolize_part(part[len(word) :])
+    if len(part) > 1 and part.startswith("^"):
+        return f"^ + {part[1:]}"
+    return part

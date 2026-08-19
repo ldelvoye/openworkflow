@@ -201,6 +201,23 @@ class Panel(Vertical):
             self.notify(str(error), severity="error")
         self.refresh()
 
+    def mark_unseen(self) -> None:
+        """Return the selected item's change mark and persist it; a panel
+        with no selection marks nothing.
+
+        A save failure notifies instead of crashing — the mark above already
+        took effect in memory, so the panel keeps running either way.
+        """
+        item = self.selected_item()
+        if item is None:
+            return
+        self.seen.mark_unseen(self.integration_id, item)
+        try:
+            self.seen.save()
+        except (ConfigError, OSError) as error:
+            self.notify(str(error), severity="error")
+        self.refresh()
+
     def action_toggle_detail(self) -> None:
         item = self.selected_item()
         if item is None:

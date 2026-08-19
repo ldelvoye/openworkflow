@@ -16,6 +16,7 @@ from smorg.integrations.linear.source import Issue
 from smorg.shell.app import SmorgApp
 from smorg.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
 from smorg.shell.panel import Panel, PanelState, _scroll_indicators
+from smorg.shell.refresh_indicator import DONE_LINGER_SECONDS, RefreshIndicator, RefreshStage
 from smorg.shell.terminal_palette import (
     MINIMUM_CONTRAST_RATIO,
     TerminalPalette,
@@ -142,17 +143,26 @@ async def test_an_empty_app_renders_the_menu_hint():
         static = app.query_one(Static)
         rendered = "".join(static.render_line(y).text for y in range(static.size.height))
 
-    assert "ctrl+p" in rendered.lower()
+    assert "^ + p" in rendered
     assert "add integration" in rendered.lower()
 
 
 @pytest.mark.asyncio
-async def test_shift_right_switches_to_the_next_tab():
-    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
+async def test_l_switches_to_the_next_tab():
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"), TabConfig("gamma")))
     async with app.run_test() as pilot:
         assert app.active_tab == "alpha"
-        await pilot.press("shift+right")
+        await pilot.press("l")
         assert app.active_tab == "beta"
+
+
+@pytest.mark.asyncio
+async def test_h_switches_to_the_previous_tab_wrapping_backward():
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"), TabConfig("gamma")))
+    async with app.run_test() as pilot:
+        assert app.active_tab == "alpha"
+        await pilot.press("h")
+        assert app.active_tab == "gamma"
 
 
 def test_app_bindings_are_derived_from_shell_keys():
@@ -183,7 +193,9 @@ async def test_r_forces_a_refresh_of_the_active_tab(monkeypatch):
     fetched: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.refresh_tab",
-        lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
+        lambda self, integration_id, panel, force=False, on_stage=None: fetched.append(
+            (integration_id, force)
+        ),
     )
     async with SmorgApp(tabs=(TabConfig("alpha"),)).run_test() as pilot:
         fetched.clear()
@@ -200,7 +212,7 @@ async def test_switching_to_a_tab_fetches_it(monkeypatch):
     )
     async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         fetched.clear()
-        await pilot.press("shift+right")
+        await pilot.press("l")
     assert fetched == ["beta"]
 
 
@@ -224,7 +236,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
     )
 
     async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.app.workers.wait_for_complete()
 
     assert scheduled == []
@@ -270,7 +282,7 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
     app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.pause()
         await pilot.press("down")
         await pilot.pause()
@@ -280,30 +292,15 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
-    """j and k are no longer reserved — an integration may bind them — but the
-    shell itself still doesn't, so pressing them here is a no-op either way.
-    """
-    issues = (issue("ENG-1"), issue("ENG-2"))
-
-    def fake_refresh(self, integration_id, panel, force=False):
-        panel.items = issues
-        panel.state = PanelState.READY
-
-    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
-
-    app = SmorgApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
+async def test_shift_arrows_no_longer_switch_tabs():
+    """h/l took over tab switching, freeing shift+left/right for manifests —
+    so pressing them must leave the active tab alone."""
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
     async with app.run_test() as pilot:
-        await pilot.pause()
-        assert app.active_tab == "linear"
-        await pilot.press("j")
-        await pilot.press("k")
-        await pilot.pause()
-        panel = app.query_one(LinearPanel)
-        active_tab_after = app.active_tab
-
-    assert active_tab_after == "linear"
-    assert panel.selected_url() == issues[0].url
+        assert app.active_tab == "alpha"
+        await pilot.press("shift+right")
+        await pilot.press("shift+left")
+        assert app.active_tab == "alpha"
 
 
 @pytest.mark.asyncio
@@ -472,7 +469,7 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
 
 
 def test_a_shared_modifier_is_stated_once():
-    assert merge_key_display("shift+↑", "shift+↓") == "shift+↑/↓"
+    assert merge_key_display("⇧ + ↑", "⇧ + ↓") == "⇧ + ↑/↓"
 
 
 def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
@@ -480,11 +477,33 @@ def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
 
 
 def test_two_different_modifiers_stay_fully_spelled_out():
-    assert merge_key_display("ctrl+a", "shift+b") == "ctrl+a/shift+b"
+    assert merge_key_display("^ + a", "⇧ + b") == "^ + a/⇧ + b"
 
 
 def test_a_lone_shift_binding_symbolizes_even_when_unmerged():
     assert symbolize_key_display("shift+x") == "⇧ + x"
+
+
+def test_symbolize_expands_a_fused_caret_with_an_explicit_plus():
+    assert symbolize_key_display("^p") == "^ + p"
+
+
+def test_symbolize_maps_the_command_modifier_to_its_glyph():
+    assert symbolize_key_display("super+k") == "⌘ + k"
+
+
+@pytest.mark.asyncio
+async def test_every_key_display_goes_through_the_symbolizer():
+    """The footer and overlay both read App.get_key_display, so the override
+    is the single point where symbol enforcement happens."""
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    menu_binding = next(
+        binding
+        for binding in SmorgApp.BINDINGS
+        if isinstance(binding, Binding) and binding.key == "ctrl+p"
+    )
+    async with app.run_test():
+        assert app.get_key_display(menu_binding) == "^ + p"
 
 
 @pytest.mark.asyncio
@@ -571,7 +590,9 @@ async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
     fetched: list[tuple[str, bool]] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.refresh_tab",
-        lambda self, integration_id, panel, force=False: fetched.append((integration_id, force)),
+        lambda self, integration_id, panel, force=False, on_stage=None: fetched.append(
+            (integration_id, force)
+        ),
     )
     app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
@@ -582,7 +603,7 @@ async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
         await pilot.pause()
 
         fetched.clear()
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.press("r")
         await pilot.pause()
 
@@ -904,3 +925,161 @@ async def test_a_failed_mark_all_seen_save_notifies_instead_of_crashing(monkeypa
         await pilot.pause()
 
     assert notified == ["No space left on device"]
+
+
+# --- Mark-unseen key ---
+
+
+@pytest.mark.asyncio
+async def test_u_marks_only_the_selected_item_unseen(monkeypatch):
+    monkeypatch.setattr("smorg.core.state.SeenState.save", lambda self: None)
+    issues = (issue("ENG-1"), issue("ENG-2"))
+
+    def fake_refresh(self, integration_id, panel, force=False, on_stage=None):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        panel = app.query_one(LinearPanel)
+        await pilot.press("m")
+        await pilot.pause()
+        assert panel.seen.is_changed("linear", issues[0]) is False
+
+        await pilot.press("u")
+        await pilot.pause()
+
+    assert panel.seen.is_changed("linear", issues[0]) is True
+    assert panel.seen.is_changed("linear", issues[1]) is False
+
+
+@pytest.mark.asyncio
+async def test_u_on_an_unsupported_tab_is_a_quiet_no_op():
+    # "alpha" has no registered integration, so its Panel has no selection —
+    # marking nothing unseen is a genuine no-op, not a special case to guard.
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+    # No exception is the assertion.
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mark_unseen_save_notifies_instead_of_crashing(monkeypatch):
+    # Same policy as mark-all-seen's save failure, re-asserted at this
+    # call site because call sites regress independently.
+    def refuse_save(self):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr("smorg.core.state.SeenState.save", refuse_save)
+    issues = (issue("ENG-1"),)
+
+    def fake_refresh(self, integration_id, panel, force=False, on_stage=None):
+        panel.items = issues
+        panel.state = PanelState.READY
+
+    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+
+    assert notified == ["No space left on device"]
+
+
+# --- The refresh key's staged feedback ---
+
+
+class _ItemsIntegration:
+    def __init__(self) -> None:
+        self.manifest = _fake_manifest()
+        self.panel_class = Panel
+
+    def fetch(self, credentials, http):
+        return (item(),)
+
+
+@pytest.mark.asyncio
+async def test_r_reports_the_refresh_stages_in_order(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "smorg.shell.app.get_integration", lambda integration_id: _ItemsIntegration()
+    )
+    recorded: list[RefreshStage] = []
+    original = RefreshIndicator.show_stage
+
+    def recording(self, stage):
+        recorded.append(stage)
+        original(self, stage)
+
+    monkeypatch.setattr(RefreshIndicator, "show_stage", recording)
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        recorded.clear()
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        indicator = app.query_one(RefreshIndicator)
+        showing = indicator.display
+
+    assert recorded == [RefreshStage.CONNECTING, RefreshStage.FETCHING, RefreshStage.DONE]
+    assert showing is True
+
+
+@pytest.mark.asyncio
+async def test_a_failed_refresh_hides_the_indicator(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "smorg.shell.app.get_integration",
+        lambda integration_id: _RaisingIntegration(Unavailable("linear is down")),
+    )
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        await pilot.press("r")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        indicator = app.query_one(RefreshIndicator)
+        showing = indicator.display
+
+    assert showing is False
+
+
+@pytest.mark.asyncio
+async def test_tab_switch_refreshes_never_show_the_indicator(monkeypatch):
+    _stub_credentials(monkeypatch)
+    monkeypatch.setattr(
+        "smorg.shell.app.get_integration", lambda integration_id: _ItemsIntegration()
+    )
+    app = SmorgApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
+    async with app.run_test() as pilot:
+        await pilot.press("l")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+        indicator = app.query_one(RefreshIndicator)
+        showing = indicator.display
+
+    assert showing is False
+
+
+@pytest.mark.asyncio
+async def test_the_done_stage_hides_itself_after_its_linger():
+    app = SmorgApp(tabs=(TabConfig("alpha"),))
+    async with app.run_test() as pilot:
+        indicator = app.query_one(RefreshIndicator)
+        indicator.show_stage(RefreshStage.DONE)
+        await pilot.pause()
+        assert indicator.display is True
+
+        await pilot.pause(DONE_LINGER_SECONDS + 0.2)
+        assert indicator.display is False

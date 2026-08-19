@@ -56,6 +56,19 @@ def test_mark_all_seen_clears_every_highlight():
     assert [state.is_changed("linear", entry) for entry in items] == [False, False]
 
 
+def test_mark_unseen_restores_the_highlight():
+    state = SeenState.load()
+    state.mark_seen("linear", item())
+    state.mark_unseen("linear", item())
+    assert state.is_changed("linear", item()) is True
+
+
+def test_mark_unseen_of_a_never_seen_item_is_a_no_op():
+    state = SeenState.load()
+    state.mark_unseen("linear", item())
+    assert state.is_changed("linear", item()) is True
+
+
 def test_a_corrupt_state_file_is_treated_as_empty():
     state = SeenState.load()
     state.mark_seen("linear", item())

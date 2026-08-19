@@ -69,6 +69,14 @@ class SeenState:
         for item in items:
             self.mark_seen(integration_id, item)
 
+    def mark_unseen(self, integration_id: str, item: Item) -> None:
+        """Drop item's stored stamp so it counts as changed again — the
+        inverse of mark_seen. An item with no stamp is a no-op."""
+        stamps = self._seen.get(integration_id)
+        if stamps is None:
+            return
+        stamps.pop(item.id, None)
+
     def forget(self, integration_id: str) -> None:
         """Drop this integration's marks. An id with no marks is a no-op."""
         self._seen.pop(integration_id, None)
