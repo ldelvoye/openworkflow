@@ -142,7 +142,7 @@ async def test_an_empty_app_renders_the_menu_hint():
         static = app.query_one(Static)
         rendered = "".join(static.render_line(y).text for y in range(static.size.height))
 
-    assert "ctrl+p" in rendered.lower()
+    assert "^ + p" in rendered
     assert "add integration" in rendered.lower()
 
 
@@ -466,7 +466,7 @@ async def test_question_mark_opens_the_active_tabs_deduped_key_reference():
 
 
 def test_a_shared_modifier_is_stated_once():
-    assert merge_key_display("shift+↑", "shift+↓") == "shift+↑/↓"
+    assert merge_key_display("⇧ + ↑", "⇧ + ↓") == "⇧ + ↑/↓"
 
 
 def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
@@ -474,11 +474,33 @@ def test_two_unmodified_keys_merge_with_no_prefix_to_repeat():
 
 
 def test_two_different_modifiers_stay_fully_spelled_out():
-    assert merge_key_display("ctrl+a", "shift+b") == "ctrl+a/shift+b"
+    assert merge_key_display("^ + a", "⇧ + b") == "^ + a/⇧ + b"
 
 
 def test_a_lone_shift_binding_symbolizes_even_when_unmerged():
     assert symbolize_key_display("shift+x") == "⇧ + x"
+
+
+def test_symbolize_expands_a_fused_caret_with_an_explicit_plus():
+    assert symbolize_key_display("^p") == "^ + p"
+
+
+def test_symbolize_maps_the_command_modifier_to_its_glyph():
+    assert symbolize_key_display("super+k") == "⌘ + k"
+
+
+@pytest.mark.asyncio
+async def test_every_key_display_goes_through_the_symbolizer():
+    """The footer and overlay both read App.get_key_display, so the override
+    is the single point where symbol enforcement happens."""
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    menu_binding = next(
+        binding
+        for binding in SmorgApp.BINDINGS
+        if isinstance(binding, Binding) and binding.key == "ctrl+p"
+    )
+    async with app.run_test():
+        assert app.get_key_display(menu_binding) == "^ + p"
 
 
 @pytest.mark.asyncio

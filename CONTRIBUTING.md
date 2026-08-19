@@ -91,7 +91,7 @@ not registered fails with "not supported" rather than half-working.
 
 **Screenshots.** A reviewer won't have every integration's service account —
 nobody expects them to sign up for Azure just to review a contributed Azure
-tab. Press `ctrl+p` and run **Screenshot** to export the current screen as an
+tab. Press `^ + p` and run **Screenshot** to export the current screen as an
 SVG to your Downloads folder, rendered with your terminal's real colors
 instead of a generic fallback, and lifted to a 4.5:1 readability floor so no
 text exports fainter than it draws (`export_screenshot` is overridden in

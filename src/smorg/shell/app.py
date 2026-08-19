@@ -29,7 +29,7 @@ from smorg.core.contract import (
 from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
-from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display
+from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display, symbolize_key_display
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
 from smorg.shell.terminal_palette import TerminalPalette, readable_theme
@@ -148,7 +148,7 @@ class SmorgApp(App[None]):
         self.theme = "ansi-dark"
         self.tab_ids = tuple[str, ...](tab.integration for tab in tabs)
         self._tab_configs = {tab.integration: tab for tab in tabs}
-        self.empty_hint = 'no tabs configured — press ctrl+p and pick "Add integration"'
+        self.empty_hint = 'no tabs configured — press ^ + p and pick "Add integration"'
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
         # Learned before this app existed (see cli._run) — None if the
@@ -169,6 +169,12 @@ class SmorgApp(App[None]):
         if isinstance(self.screen, ManagementScreen):
             return False
         return super().check_action(action, parameters)
+
+    def get_key_display(self, binding: Binding) -> str:
+        """Routes every key display through symbolize_key_display, so the
+        shell's modifiers render as symbols with an explicit "+" ("^p" -> "^ + p")."""
+        default_display = super().get_key_display(binding)
+        return symbolize_key_display(default_display)
 
     def compose(self) -> ComposeResult:
         """One layout, always: TabbedContent and the empty hint both exist,
