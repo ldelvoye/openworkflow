@@ -91,6 +91,23 @@ def test_a_state_file_with_non_string_stamps_is_treated_as_partial_corrupt():
     assert SeenState.load().is_changed("linear", item()) is True
 
 
+def test_forget_drops_one_integrations_marks_and_keeps_another():
+    state = SeenState.load()
+    state.mark_seen("linear", item())
+    state.mark_seen("sentry", item())
+
+    state.forget("linear")
+
+    assert state.is_changed("linear", item()) is True
+    assert state.is_changed("sentry", item()) is False
+
+
+def test_forgetting_an_integration_with_no_marks_is_a_no_op():
+    state = SeenState.load()
+    state.forget("linear")
+    assert state.is_changed("linear", item()) is True
+
+
 def test_naive_datetime_compared_against_aware_stamp_returns_changed():
     from datetime import datetime as dt
 

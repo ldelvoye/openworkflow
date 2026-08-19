@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from smorg.core.contract import Integration
+from smorg.core.contract import Integration, Manifest
 
 
 class UnknownIntegration(Exception):
@@ -14,12 +14,25 @@ def _by_id() -> dict[str, Integration]:
     # without reloading this module.
     from smorg import integrations
 
-    return {entry.manifest.id: entry for entry in integrations.INTEGRATIONS}
+    registry: dict[str, Integration] = {}
+    for entry in integrations.INTEGRATIONS:
+        identifier = entry.manifest.id
+        if identifier in registry:
+            raise ValueError(f"two registered integrations share id {identifier!r}")
+        registry[identifier] = entry
+    return registry
 
 
 def known_integration_ids() -> tuple[str, ...]:
     registry = _by_id()
     return tuple[str, ...](sorted(registry))
+
+
+def manifests() -> tuple[Manifest, ...]:
+    """Every registered manifest, sorted by id — the enumeration surface a
+    tab-management menu lists from."""
+    registry = _by_id()
+    return tuple[Manifest, ...](registry[identifier].manifest for identifier in sorted(registry))
 
 
 def get_integration(integration_id: str) -> Integration:

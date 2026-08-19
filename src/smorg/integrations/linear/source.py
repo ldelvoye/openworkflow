@@ -34,7 +34,8 @@ _HREF_ATTR = re.compile(r'href="([^"]*)"')
 
 
 def _rewrite_paired_tag(match: re.Match[str]) -> str:
-    attributes, inner = match.group(2), match.group(3)
+    attributes = match.group(2)
+    inner = match.group(3)
     href_match = _HREF_ATTR.search(attributes)
     if href_match is None:
         return inner
@@ -187,9 +188,13 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
         ),
         DESCRIPTION_LIMIT,
     )
+    if assignee:
+        assignee_name = printable(assignee)
+    else:
+        assignee_name = ""
     return IssueDetail(
         description=description,
-        assignee=printable(assignee) if assignee else "",
+        assignee=assignee_name,
         comments=tuple(comments[-COMMENT_LIMIT:]),
         hidden_comments=max(0, len(raw_comments) - COMMENT_LIMIT),
         hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT

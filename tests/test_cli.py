@@ -44,8 +44,8 @@ def revocation(monkeypatch):
         calls["revoked"] += 1
         return calls.get("succeeds", True)
 
-    monkeypatch.setattr("smorg.cli.oauth.discover", fake_discover)
-    monkeypatch.setattr("smorg.cli.oauth.revoke", fake_revoke)
+    monkeypatch.setattr("smorg.core.removal.oauth.discover", fake_discover)
+    monkeypatch.setattr("smorg.core.removal.oauth.revoke", fake_revoke)
     return calls
 
 
@@ -86,10 +86,11 @@ def test_status_reports_a_configured_tab_with_no_credentials(capsys):
     assert "disconnected" in capsys.readouterr().out
 
 
-def test_logout_deletes_credentials_but_keeps_the_tab(connected, revocation):
+def test_logout_deletes_credentials_and_removes_the_tab(connected, revocation, capsys):
     assert main(["logout", "linear"]) == 0
     assert get_credentials("linear") is None
-    assert load_config().tabs[0].integration == "linear"
+    assert load_config().tabs == ()
+    assert "removed the linear tab" in capsys.readouterr().out
 
 
 def test_logout_revokes_before_deleting(connected, revocation, capsys):
@@ -122,7 +123,12 @@ def test_connect_revokes_a_token_it_cannot_store(monkeypatch):
     credentials = Credentials("at", "rt", None, "read")
     monkeypatch.setattr("smorg.cli.run_login", lambda *args, **kwargs: ("client-abc", credentials))
     revoked: list[tuple] = []
-    monkeypatch.setattr("smorg.cli._revoke", lambda *args: bool(revoked.append(args)) or True)
+
+    def fake_revoke(*args):
+        revoked.append(args)
+        return True
+
+    monkeypatch.setattr("smorg.cli.revoke_best_effort", fake_revoke)
 
     def refuse(*args):
         raise CredentialStoreError("keychain refused")

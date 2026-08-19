@@ -53,7 +53,8 @@ _STATUS_RANKS = {"in progress": 0, "in review": 1, "todo": 3, "blocked": 5}
 
 
 def _priority_glyph(priority: str) -> tuple[str, str | None]:
-    glyph, style = _PRIORITY_GLYPHS.get(priority, _FALLBACK_GLYPH)
+    entry = _PRIORITY_GLYPHS.get(priority, _FALLBACK_GLYPH)
+    glyph, style = entry
     return glyph.ljust(GLYPH_WIDTH), style
 
 
@@ -116,10 +117,14 @@ class LinearPanel(Panel):
         # Markdown() interprets its input as CommonMark, not Rich's own
         # "[style]" markup, so a hostile "[red]x[/red]" body can't style or
         # hide anything — only headings/emphasis/code/lists render as markdown.
+        if detail.description:
+            description = detail.description
+        else:
+            description = "no description"
         parts: list[RenderableType] = [
             header,
             Text(),
-            Markdown(detail.description or "no description", code_theme="ansi_dark"),
+            Markdown(description, code_theme="ansi_dark"),
         ]
         if detail.hidden_comments or detail.hidden_is_lower_bound:
             parts.append(Text())
@@ -128,7 +133,11 @@ class LinearPanel(Panel):
             )
         for comment in detail.comments:
             byline = Text(style="dim")
-            byline.append(comment.author or "someone")
+            if comment.author:
+                author = comment.author
+            else:
+                author = "someone"
+            byline.append(author)
             byline.append(" · ")
             byline.append(age(comment.created_at))
             parts.append(Text())
@@ -216,10 +225,22 @@ class LinearPanel(Panel):
         return body
 
     def _row(self, issue: Issue, selected: bool, id_width: int) -> Text:
-        row = Text(style="bold") if selected else Text()
-        row.append(f"{SELECTED_MARK} " if selected else "  ")
+        if selected:
+            row = Text(style="bold")
+            marker = f"{SELECTED_MARK} "
+        else:
+            row = Text()
+            marker = "  "
+        row.append(marker)
+
         changed = self.seen.is_changed(self.integration_id, issue)
-        row.append(CHANGED_MARK if changed else " ", style=CHANGE_STYLE if changed else None)
+        if changed:
+            mark_char = CHANGED_MARK
+            mark_style = CHANGE_STYLE
+        else:
+            mark_char = " "
+            mark_style = None
+        row.append(mark_char, style=mark_style)
         row.append(" ")
         row.append(issue.id.ljust(id_width), style="dim")
         row.append("  ")

@@ -12,7 +12,7 @@ is covered in [CONTRIBUTING.md](../CONTRIBUTING.md).
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ shell/ — chrome every tab inherits                           │
-│      app.py — tab bar · keymap · refresh  Panel (base)       │
+│    app.py — tab bar · keymap · refresh  menu.py  Panel (base)│
 └─────────┬────────────────────────────────────────────────────┘
           │ fetch / fetch_detail,                 ▲
           ▼ off the UI thread                     │ extends
@@ -36,8 +36,9 @@ is covered in [CONTRIBUTING.md](../CONTRIBUTING.md).
 - **Integrations** own everything service-specific: fetching, parsing,
   pagination, filtering, and how their tab looks.
 - **The shell** owns everything that makes the tabs feel like one program: the
-  tab bar, the global keymap, refresh scheduling, the panel states, the detail
-  region, seen-state injection, and shared rendering widgets.
+  tab bar, the global keymap, the management menu, refresh scheduling, the
+  panel states, the detail region, seen-state injection, and shared rendering
+  widgets.
 - **Core and auth** are the machine: MCP transport, shape validation,
   sanitizers, seen-state storage, config, credentials.
 

@@ -33,6 +33,7 @@ __all__ = [
     "build_authorize_url",
     "discover",
     "exchange_code",
+    "extra_scopes_warning",
     "make_pkce_pair",
     "refresh_credentials",
     "register_client",
@@ -196,16 +197,26 @@ def _credentials_from_token_response(
             raise OAuthError(
                 f"token response gave a non-numeric expires_in: {expires_in!r}"
             ) from error
+    received_refresh_token = payload.get("refresh_token")
+    if received_refresh_token:
+        refresh_token = received_refresh_token
+    else:
+        # Omission means the refresh token we already hold stays valid;
+        # dropping it here would silently break the refresh after next.
+        refresh_token = fallback_refresh
+
+    if expires_in is None:
+        # expires_in of 0 means the token is already dead; None means the
+        # server said nothing about expiry at all.
+        expires_at = None
+    else:
+        expires_at = now() + timedelta(seconds=expires_in)
+
     try:
         return Credentials(
             access_token=payload["access_token"],
-            # A refresh response may omit refresh_token, which means the one we
-            # already hold stays valid. Dropping it there would silently break
-            # the refresh after next.
-            refresh_token=payload.get("refresh_token") or fallback_refresh,
-            # Compared against None, not truthiness: expires_in of 0 means the
-            # token is already dead, while None means the server said nothing.
-            expires_at=now() + timedelta(seconds=expires_in) if expires_in is not None else None,
+            refresh_token=refresh_token,
+            expires_at=expires_at,
             scope=payload.get("scope", ""),
         )
     except (KeyError, TypeError) as error:
@@ -272,6 +283,27 @@ def refresh_credentials(
     return _credentials_from_token_response(payload, fallback_refresh=credentials.refresh_token)
 
 
+def extra_scopes_warning(
+    integration_id: str, display_name: str, provider: ProviderConfig, credentials: Credentials
+) -> str | None:
+    """None when the provider granted nothing beyond what was requested.
+
+    A warning, not a refusal — every call site is read-only, so an
+    over-scoped token's only cost is being a bigger prize if stolen. Shared
+    text so a CLI print and a TUI toast never drift apart.
+    """
+    granted = set[str](credentials.scope.split())
+    requested = set[str](provider.scopes)
+    extra = sorted(granted - requested)
+    if not extra:
+        return None
+    return (
+        f"{display_name} granted scopes smorg did not ask for: {', '.join(extra)}. "
+        f"Nothing here uses them, but the stored token can. "
+        f"Run 'smorg logout {integration_id}' to revoke it."
+    )
+
+
 def revoke(
     client: httpx.Client,
     metadata: ServerMetadata,
@@ -286,9 +318,13 @@ def revoke(
     """
     if metadata.revocation_endpoint is None:
         return False
-    # Revoking the refresh token is what matters — it outlives the session;
-    # with none, the access token is the only thing left worth invalidating.
-    token = credentials.refresh_token or credentials.access_token
+    if credentials.refresh_token:
+        token = credentials.refresh_token
+    else:
+        # Revoking the refresh token is what matters — it outlives the
+        # session; with none, the access token is the only thing left worth
+        # invalidating.
+        token = credentials.access_token
     try:
         response = client.post(
             metadata.revocation_endpoint,

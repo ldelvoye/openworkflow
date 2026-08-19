@@ -16,7 +16,11 @@ from smorg.integrations.linear.source import Issue
 from smorg.shell.app import SmorgApp
 from smorg.shell.help import HelpOverlay, merge_key_display, symbolize_key_display
 from smorg.shell.panel import Panel, PanelState, _scroll_indicators
-from smorg.shell.terminal_palette import TerminalPalette
+from smorg.shell.terminal_palette import (
+    MINIMUM_CONTRAST_RATIO,
+    TerminalPalette,
+    contrast_ratio,
+)
 
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 CREDENTIALS = Credentials("token-abc", None, None, "read")
@@ -131,14 +135,15 @@ async def test_the_app_defaults_to_the_terminal_native_ansi_theme():
 
 
 @pytest.mark.asyncio
-async def test_an_empty_app_renders_the_connect_hint():
+async def test_an_empty_app_renders_the_menu_hint():
     app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
         await pilot.pause()
         static = app.query_one(Static)
         rendered = "".join(static.render_line(y).text for y in range(static.size.height))
 
-    assert "connect" in rendered.lower()
+    assert "ctrl+p" in rendered.lower()
+    assert "add integration" in rendered.lower()
 
 
 @pytest.mark.asyncio
@@ -158,7 +163,7 @@ def test_app_bindings_are_derived_from_shell_keys():
     assert keys == {shell_key.key for shell_key in SHELL_KEYS}
 
 
-# --- Task 6: fetching and refresh ---
+# --- Fetching and refresh ---
 
 
 @pytest.mark.asyncio
@@ -341,14 +346,21 @@ async def test_opening_an_item_clears_its_change_mark(monkeypatch):
     assert panel.seen.is_changed("linear", issues[0]) is False
 
 
-# --- Task 7: the error taxonomy drives distinct panel states ---
+# --- The error taxonomy drives distinct panel states ---
+
+
+def _fake_manifest() -> SimpleNamespace:
+    """A manifest stand-in exposing just what refresh_tab/fetch_detail read:
+    stale_after and the connection resolver."""
+    path = SimpleNamespace(id="mcp", provider=None)
+    return SimpleNamespace(stale_after=timedelta(minutes=5), connection=lambda chosen: path)
 
 
 class _RaisingIntegration:
     """A fake integration whose fetch always fails with a given IntegrationError."""
 
     def __init__(self, error: Exception) -> None:
-        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5), provider=None)
+        self.manifest = _fake_manifest()
         self.panel_class = Panel
         self._error = error
 
@@ -610,7 +622,7 @@ async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_cr
     assert "alpha" in text
 
 
-# --- Trimmed system commands (Change 2) ---
+# --- Trimmed system commands ---
 
 
 @pytest.mark.asyncio
@@ -662,18 +674,37 @@ async def test_screenshot_with_a_learned_palette_uses_its_real_colors():
 
 
 @pytest.mark.asyncio
-async def test_screenshot_without_a_palette_keeps_the_current_fallback_mapping():
+async def test_screenshot_without_a_palette_falls_back_to_the_apps_own_ansi_theme():
     app = SmorgApp(tabs=(TabConfig("linear"),))  # no palette — the query found nothing
     async with app.run_test() as pilot:
         await pilot.pause()
         svg = app.export_screenshot()
+        fallback_background = app.ansi_theme.background_color.hex
 
-    # Unchanged from Textual's own App.export_screenshot: Rich's generic
-    # SVG_EXPORT_THEME background, since no theme is passed to export_svg.
-    assert "#292929" in svg
+    assert fallback_background in svg
+    # Rich's generic SVG_EXPORT_THEME background: a desaturated palette
+    # belonging to neither the terminal nor the app.
+    assert "#292929" not in svg
 
 
-# --- Task 4: wiring token refresh into the shell ---
+@pytest.mark.parametrize("palette", [PALETTE, None], ids=["learned", "fallback"])
+@pytest.mark.asyncio
+async def test_every_screenshot_clears_the_readability_floor(palette):
+    """Whichever theme a screenshot ends up on, none of its colors may be
+    harder to read than the terminal draws them (see terminal_palette.readable).
+    """
+    app = SmorgApp(tabs=(TabConfig("linear"),), palette=palette)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        theme = app._screenshot_theme()
+
+    background = theme.background_color
+    colors = [theme.foreground_color] + [theme.ansi_colors[index] for index in range(16)]
+    worst = min(contrast_ratio(color, background) for color in colors)
+    assert worst >= MINIMUM_CONTRAST_RATIO
+
+
+# --- Wiring token refresh into the shell ---
 
 
 @pytest.mark.asyncio
@@ -707,12 +738,12 @@ async def test_a_failed_refresh_shows_the_reconnect_hint(monkeypatch):
     assert "run: smorg connect linear" in panel.message
 
 
-# --- Task 9: the shell brokers detail fetches ---
+# --- The shell brokers detail fetches ---
 
 
 class _DetailIntegration:
     def __init__(self) -> None:
-        self.manifest = SimpleNamespace(stale_after=timedelta(minutes=5), provider=None)
+        self.manifest = _fake_manifest()
         self.panel_class = LinearPanel
 
     def fetch(self, credentials, http):
@@ -811,7 +842,7 @@ def test_show_items_prunes_the_detail_cache():
     assert panel.detail_key(stale) not in panel._details
 
 
-# --- Task 10: mark-all-seen key ---
+# --- Mark-all-seen key ---
 
 
 @pytest.mark.asyncio

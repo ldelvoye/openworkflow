@@ -15,7 +15,7 @@ import httpx
 
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
-from smorg.core.contract import Action, ActionClass, Item, Manifest
+from smorg.core.contract import Action, ActionClass, ConnectionPath, Item, Manifest
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
 
@@ -28,7 +28,7 @@ PROVIDER = ProviderConfig(
 MANIFEST = Manifest(
     id="linear",
     display_name="Linear",
-    provider=PROVIDER,
+    connections=(ConnectionPath(id="mcp", provider=PROVIDER),),
     # Long enough that flicking between tabs does not refetch constantly, short
     # enough that a glance after stepping away is current.
     stale_after=timedelta(minutes=5),

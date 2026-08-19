@@ -67,16 +67,30 @@ class Item:
 
 
 @dataclass(frozen=True)
+class ConnectionPath:
+    """One way an integration can be reached — OAuth via ProviderConfig is
+    the only kind implemented. A manifest can declare several so the
+    management UI can name and offer each one."""
+
+    id: str
+    provider: ProviderConfig
+
+
+def _duplicates(values: Sequence[str]) -> list[str]:
+    return sorted({value for value in values if values.count(value) > 1})
+
+
+@dataclass(frozen=True)
 class Manifest:
     id: str
     display_name: str
-    provider: ProviderConfig
+    connections: tuple[ConnectionPath, ...]
     stale_after: timedelta
     actions: tuple[Action, ...]
 
     def __post_init__(self) -> None:
         keys = [action.key for action in self.actions]
-        duplicates = sorted({key for key in keys if keys.count(key) > 1})
+        duplicates = _duplicates(keys)
         if duplicates:
             raise ValueError(f"duplicate action key(s) in {self.id}: {duplicates}")
         reserved = sorted(set[str](keys) & RESERVED_KEYS)
@@ -85,6 +99,27 @@ class Manifest:
                 f"{self.id} binds reserved shell key(s) {reserved}; "
                 f"panels may add keys, not rebind global ones"
             )
+        if not self.connections:
+            raise ValueError(f"{self.id} declares no connection path; it could never connect")
+        connection_ids = [connection.id for connection in self.connections]
+        duplicate_connections = _duplicates(connection_ids)
+        if duplicate_connections:
+            raise ValueError(
+                f"duplicate connection path id(s) in {self.id}: {duplicate_connections}"
+            )
+
+    def connection(self, chosen: str | None) -> ConnectionPath:
+        """Resolve a config-recorded path id to its declaration; None means
+        "nothing recorded yet" and returns the first declared path. The
+        single resolver every call site uses, instead of indexing connections
+        directly."""
+        if chosen is None:
+            return self.connections[0]
+        for path in self.connections:
+            if path.id == chosen:
+                return path
+        declared = ", ".join(path.id for path in self.connections)
+        raise ValueError(f"{self.id} declares no connection path {chosen!r}; has: {declared}")
 
 
 class IntegrationError(Exception):

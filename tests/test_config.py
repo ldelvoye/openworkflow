@@ -71,3 +71,15 @@ def test_tab_order_is_preserved():
     config = add_tab(config, TabConfig(integration="sentry", client_id="b"))
     save_config(config)
     assert [tab.integration for tab in load_config().tabs] == ["linear", "sentry"]
+
+
+def test_connection_roundtrips_through_save_and_load():
+    config = Config(tabs=(TabConfig(integration="linear", connection="mcp"),))
+    save_config(config)
+    assert load_config().tabs[0].connection == "mcp"
+
+
+def test_a_tab_entry_with_no_connection_key_loads_as_none():
+    save_config(Config(tabs=()))
+    config_path().write_text('tabs = [ { integration = "linear" } ]')
+    assert load_config().tabs[0].connection is None

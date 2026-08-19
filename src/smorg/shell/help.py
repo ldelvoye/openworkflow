@@ -9,44 +9,20 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Static
+
+from smorg.shell.modal import ModalBox
 
 Row = tuple[str, str]
 Section = tuple[str, list[Row]]
 
 
-class HelpOverlay(ModalScreen[None]):
+class HelpOverlay(ModalBox):
     """A bordered key reference; with no tabs, the app's connect hint."""
 
     DEFAULT_CSS = """
-    HelpOverlay {
-        align: center middle;
-    }
-
-    HelpOverlay > VerticalScroll {
-        width: auto;
-        height: auto;
-        max-width: 64;
+    HelpOverlay > .box {
         max-height: 80%;
-        border: round $primary;
-        padding: 1 2;
-        /* Solid, not alpha: ModalScreen's alpha backdrop resolves to
-         * transparent under :ansi (alpha can't blend over ANSI colors), so
-         * this needs its own opaque background instead.
-         */
-        background: $background;
-        &:ansi {
-            background: ansi_default;
-        }
-    }
-
-    /* Static has no width of its own, so inside this auto-width parent it
-     * falls back to filling a not-yet-known width — a circular dependency
-     * that renders an empty box. Explicit auto width breaks the cycle.
-     */
-    HelpOverlay Static {
-        width: auto;
     }
     """
 
@@ -61,7 +37,7 @@ class HelpOverlay(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         # markup=False: consistent with Panel's rule for server/manifest
         # text, kept even though these strings are all our own.
-        body = VerticalScroll(Static(self.body_text(), markup=False))
+        body = VerticalScroll(Static(self.body_text(), markup=False), classes="box")
         body.border_title = "keys"
         yield body
 

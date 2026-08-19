@@ -12,13 +12,13 @@ from rich.terminal_theme import TerminalTheme
 from textual import work
 from textual.app import App, ComposeResult, SystemCommand
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.command import CommandPalette
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
 from smorg.auth.refresh import fresh_credentials
 from smorg.auth.store import CredentialStoreError, now
-from smorg.core.config import TabConfig
+from smorg.core.config import TabConfig, resolve_connection
 from smorg.core.contract import (
     Action,
     AuthExpired,
@@ -30,8 +30,9 @@ from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
 from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display
+from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
-from smorg.shell.terminal_palette import TerminalPalette
+from smorg.shell.terminal_palette import TerminalPalette, readable_theme
 
 
 def _rows_from_bindings(app: App[None], bindings: Iterable[object]) -> list[Row]:
@@ -77,7 +78,51 @@ def _lowercase_leading_letter(text: str) -> str:
 class SmorgApp(App[None]):
     CSS = """
     Screen { layout: vertical; }
+
+    /* Textual pins Toast's :ansi background to literal ansi_black via
+     * $ansi-background — a dark box on light terminals. ansi_default tracks the
+     * terminal (same idiom as ManagementScreen); covers every notify() toast,
+     * screenshot notification included. A full round border keeps the box
+     * visible against terminal content now that the fill blends in. */
+    Toast {
+        &:ansi {
+            background: ansi_default;
+            color: ansi_default;
+        }
+    }
+
+    Toast.-warning {
+        border: round ansi_yellow;
+    }
+
+    Toast.-warning .toast--title {
+        color: ansi_yellow;
+    }
+
+    Toast.-error {
+        border: round ansi_red;
+    }
+
+    Toast.-error .toast--title {
+        color: ansi_red;
+    }
+
+    /* Information toasts stay accent-free: no severity to flag, so the
+     * border/title match the box instead of borrowing the built-in green.
+     */
+    Toast.-information {
+        border: round ansi_default;
+    }
+
+    Toast.-information .toast--title {
+        color: ansi_default;
+    }
     """
+
+    # Adds this app's management commands (add/remove integration) alongside
+    # Textual's own system commands (screenshot, quit, ...); both surface in
+    # the same ctrl+p menu.
+    COMMANDS = App.COMMANDS | {MenuCommands}
 
     # Built from SHELL_KEYS (see core.keys, the single source for the
     # shell's keymap) so this list and RESERVED_KEYS cannot drift apart.
@@ -102,8 +147,8 @@ class SmorgApp(App[None]):
         # native ANSI colors. Named ANSI styles elsewhere depend on this being on.
         self.theme = "ansi-dark"
         self.tab_ids = tuple[str, ...](tab.integration for tab in tabs)
-        self._client_ids = {tab.integration: tab.client_id for tab in tabs}
-        self.empty_hint = "no tabs configured — run: smorg connect <integration>"
+        self._tab_configs = {tab.integration: tab for tab in tabs}
+        self.empty_hint = 'no tabs configured — press ctrl+p and pick "Add integration"'
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
         # Learned before this app existed (see cli._run) — None if the
@@ -116,16 +161,35 @@ class SmorgApp(App[None]):
             return None
         return self.query_one(TabbedContent).active or None
 
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Block every shell-level action while a management screen is on
+        top (see shell.menu.ManagementScreen); HelpOverlay is a plain
+        ModalScreen, so this check does not affect it.
+        """
+        if isinstance(self.screen, ManagementScreen):
+            return False
+        return super().check_action(action, parameters)
+
     def compose(self) -> ComposeResult:
-        if not self.tab_ids:
-            yield Vertical(Static(self.empty_hint))
-            yield Footer()
-            return
-        with TabbedContent(initial=self.tab_ids[0]):
+        """One layout, always: TabbedContent and the empty hint both exist,
+        and only one is displayed at a time (see _sync_tab_visibility). This
+        lets drop_tab toggle between them live without recomposing.
+        """
+        hint = Static(self.empty_hint, id="empty-hint")
+        hint.display = not self.tab_ids
+        with TabbedContent() as tabs:
+            tabs.display = bool(self.tab_ids)
             for tab in self.tab_ids:
                 with TabPane(tab, id=tab):
                     yield self._panel_for(tab)
+        yield hint
         yield Footer()
+
+    def _sync_tab_visibility(self) -> None:
+        """Show TabbedContent or the empty hint, never both — call after
+        anything that changes tab_ids."""
+        self.query_one(TabbedContent).display = bool(self.tab_ids)
+        self.query_one("#empty-hint", Static).display = not self.tab_ids
 
     def _panel_for(self, integration_id: str) -> Panel:
         try:
@@ -155,7 +219,11 @@ class SmorgApp(App[None]):
         the moment its tab becomes visible, startup included.
         """
         panel = event.pane.query_one(Panel)
-        self.refresh_tab(event.pane.id or "", panel)
+        if event.pane.id:
+            pane_id = event.pane.id
+        else:
+            pane_id = ""
+        self.refresh_tab(pane_id, panel)
         panel.focus()
 
     def on_app_focus(self) -> None:
@@ -164,6 +232,10 @@ class SmorgApp(App[None]):
         Fires only where the terminal reports focus. Where it does not, this
         degrades to tab-switch and manual refresh, which is enough.
         """
+        # Skip outright rather than queue behind a management screen — it
+        # would otherwise fire the moment that screen closes.
+        if isinstance(self.screen, ManagementScreen):
+            return
         if not self.active_tab:
             return
         panel = self._panel_of(self.active_tab)
@@ -190,12 +262,28 @@ class SmorgApp(App[None]):
             return
         self.push_screen(HelpOverlay(self._help_tab_section(), self.empty_hint))
 
+    def action_command_palette(self) -> None:
+        """Open the menu — this app's name for the command palette.
+
+        Copy of App.action_command_palette (Textual 8.2.8) with a custom
+        placeholder, which has no other hook. is_open's check is inlined
+        since App[None] can't pass its App[object] parameter (invariant
+        generic). Recheck on upgrade.
+        """
+        already_open = self.screen.has_class("--textual-command-palette")
+        if self.use_command_palette and not already_open:
+            self.push_screen(CommandPalette(placeholder="search the menu…", id="--command-palette"))
+
     def _help_tab_section(self) -> Section | None:
         active = self.active_tab
         if active is None:
             return None
         panel = self._panel_of(active)
-        binding_rows = _rows_from_bindings(self, type(panel).BINDINGS if panel is not None else ())
+        if panel is not None:
+            bindings = type(panel).BINDINGS
+        else:
+            bindings = ()
+        binding_rows = _rows_from_bindings(self, bindings)
         try:
             action_rows = _rows_from_actions(self, get_integration(active).manifest.actions)
         except UnknownIntegration:
@@ -221,11 +309,12 @@ class SmorgApp(App[None]):
             if command.callback not in dropped:
                 yield command
 
-    def _screenshot_theme(self) -> TerminalTheme | None:
-        """None preserves today's fallback: Console.export_svg's own default."""
+    def _screenshot_theme(self) -> TerminalTheme:
         if self._palette is None:
-            return None
-        return self._palette.to_terminal_theme()
+            source = self.ansi_theme
+        else:
+            source = self._palette.to_terminal_theme()
+        return readable_theme(source)
 
     def export_screenshot(self, *, title: str | None = None, simplify: bool = False) -> str:
         """Render the current screen to SVG using the learned terminal palette.
@@ -287,13 +376,15 @@ class SmorgApp(App[None]):
         except UnknownIntegration:
             return
         try:
+            path, client_id = resolve_connection(
+                integration.manifest, self._tab_configs.get(integration_id)
+            )
+        except ValueError as error:
+            self.call_from_thread(panel.show_detail_error, key, str(error))
+            return
+        try:
             with httpx.Client(timeout=30) as http:
-                credentials = fresh_credentials(
-                    integration_id,
-                    integration.manifest.provider,
-                    self._client_ids.get(integration_id),
-                    http,
-                )
+                credentials = fresh_credentials(integration_id, path.provider, client_id, http)
                 if credentials is None:
                     self.call_from_thread(panel.show_detail_error, key, "not connected")
                     return
@@ -333,13 +424,16 @@ class SmorgApp(App[None]):
                 return
 
         try:
+            path, client_id = resolve_connection(
+                integration.manifest, self._tab_configs.get(integration_id)
+            )
+        except ValueError as error:
+            self.call_from_thread(self._show_error, panel, str(error))
+            return
+
+        try:
             with httpx.Client(timeout=30) as http:
-                credentials = fresh_credentials(
-                    integration_id,
-                    integration.manifest.provider,
-                    self._client_ids.get(integration_id),
-                    http,
-                )
+                credentials = fresh_credentials(integration_id, path.provider, client_id, http)
                 if credentials is None:
                     self.call_from_thread(self._show_error, panel, "not connected")
                     return
@@ -386,3 +480,37 @@ class SmorgApp(App[None]):
             if pane.id == integration_id:
                 return pane.query_one(Panel)
         return None
+
+    async def add_tab_live(self, tab_config: TabConfig) -> None:
+        """Mount a freshly connected integration's tab and make it active.
+
+        Works from the empty state too — compose() always yields TabbedContent,
+        just hidden (see _sync_tab_visibility). Activating the new pane fires
+        on_tabbed_content_tab_activated, so the fresh credentials get used on
+        the very next fetch.
+        """
+        integration_id = tab_config.integration
+        self.tab_ids = self.tab_ids + (integration_id,)
+        self._tab_configs[integration_id] = tab_config
+        panel = self._panel_for(integration_id)
+        panel.seen = self.seen
+        tabbed = self.query_one(TabbedContent)
+        await tabbed.add_pane(TabPane(integration_id, panel, id=integration_id))
+        self._sync_tab_visibility()
+        tabbed.active = integration_id
+
+    async def drop_tab(self, integration_id: str) -> None:
+        """Remove integration_id's tab and drop it from tab_ids,
+        _tab_configs, and _fetched_at. A no-op if the tab is already gone.
+
+        query_one searches every mounted screen, not just the active one —
+        load-bearing here, since a management modal covers the default
+        screen while removal runs.
+        """
+        if integration_id not in self.tab_ids:
+            return
+        self.tab_ids = tuple(tab_id for tab_id in self.tab_ids if tab_id != integration_id)
+        self._tab_configs.pop(integration_id, None)
+        self._fetched_at.pop(integration_id, None)
+        await self.query_one(TabbedContent).remove_pane(integration_id)
+        self._sync_tab_visibility()
