@@ -1,4 +1,5 @@
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -12,6 +13,7 @@ from smorg.core.config import Config, TabConfig, load_config, save_config
 from smorg.core.contract import ConnectionPath, Item, Manifest
 from smorg.core.removal import RemovalResult
 from smorg.core.state import SeenState
+from smorg.integrations.linear.manifest import LinearIntegration
 from smorg.shell.app import SmorgApp
 from smorg.shell.menu import (
     ADD_COMMAND,
@@ -41,6 +43,12 @@ WIDGET_PROVIDER = ProviderConfig(
     scopes=("read",),
     client_name="smorg",
 )
+
+
+async def _wait_until(pilot, condition) -> None:
+    deadline = time.monotonic() + 8
+    while not condition() and time.monotonic() < deadline:
+        await pilot.pause(0.05)
 
 
 def item(identifier: str = "ENG-1") -> Item:
@@ -79,6 +87,18 @@ class FakeIntegration:
 def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("SMORG_CONFIG_DIR", str(tmp_path / "cfg"))
     monkeypatch.setenv("SMORG_CREDENTIAL_STORE", "file")
+
+
+@pytest.fixture(autouse=True)
+def no_linear_network(monkeypatch):
+    # Menu tests configure the real "linear" integration with seeded credentials;
+    # CONTRIBUTING mandates no network in tests.
+    monkeypatch.setattr(LinearIntegration, "fetch", lambda self, credentials, http: ())
+
+    def unexpected_fetch_detail(self, credentials, http, item):
+        raise AssertionError("unexpected fetch_detail in menu tests")
+
+    monkeypatch.setattr(LinearIntegration, "fetch_detail", unexpected_fetch_detail)
 
 
 @pytest.fixture
@@ -235,7 +255,7 @@ async def test_confirming_removes_the_pane_and_every_stored_trace(revocation):
         await pilot.pause()
 
         await pilot.press("y")
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, RemoveConfirmModal))
         await pilot.pause()
 
         # Asserted against the default screen explicitly (screen_stack[0]),
@@ -262,7 +282,7 @@ async def test_removing_the_last_tab_shows_the_startup_empty_hint():
         await pilot.pause()
 
         await pilot.press("y")
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, RemoveConfirmModal))
         await pilot.pause()
 
         # Asserted against the default screen explicitly, and against the
@@ -294,7 +314,7 @@ async def test_a_later_mark_seen_save_does_not_resurrect_a_removed_integrations_
         await pilot.pause()
 
         await pilot.press("y")
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, RemoveConfirmModal))
         await pilot.pause()
 
         app.seen.mark_seen("alpha", item("SURVIVOR-1"))
@@ -348,7 +368,7 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
         assert isinstance(app.screen, RemoveConfirmModal)
 
         release.set()
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, RemoveConfirmModal))
         await pilot.pause()
 
         assert not isinstance(app.screen, RemoveConfirmModal)
@@ -474,7 +494,7 @@ async def test_selecting_a_path_hands_off_to_the_connect_modal_and_dismisses_its
         assert app.screen.path.id == "mcp"
 
         release.set()
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, ConnectModal))
         await pilot.pause()
 
 
@@ -524,7 +544,7 @@ async def test_escape_during_the_wait_cancels_cleanly(registered, monkeypatch):
         await pilot.pause()
 
         await pilot.press("escape")
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, ConnectModal))
         await pilot.pause()
 
         assert not isinstance(app.screen, ConnectModal)
@@ -553,7 +573,7 @@ async def test_connecting_succeeds_from_the_empty_state(registered, monkeypatch)
         widget = addable_integrations()[0]
         app.push_screen(ConnectModal("widget", "Widget", widget.connections[0]))
         await pilot.pause()  # let on_mount dispatch _connect before waiting on it
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, ConnectModal))
         await pilot.pause()
 
         # Asserted against the default screen explicitly (screen_stack[0]),
@@ -603,7 +623,7 @@ async def test_a_credential_store_failure_revokes_the_token_and_stores_nothing(
         widget = addable_integrations()[0]
         app.push_screen(ConnectModal("widget", "Widget", widget.connections[0]))
         await pilot.pause()  # let on_mount dispatch _connect before waiting on it
-        await pilot.app.workers.wait_for_complete()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, ConnectModal))
         await pilot.pause()
 
         default_screen = app.screen_stack[0]
