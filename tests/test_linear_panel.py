@@ -456,6 +456,14 @@ def detail(description: str = "the description", *bodies: str) -> IssueDetail:
     )
 
 
+def _overflowing_description(lines: int = 80) -> str:
+    """`lines` paragraphs, blank-line-separated so each stays its own Markdown
+    paragraph instead of reflowing into one soft-wrapped block — this keeps
+    the rendered row count real regardless of viewport height.
+    """
+    return "\n\n".join(f"line {index}" for index in range(lines))
+
+
 def region_text(panel: LinearPanel) -> str:
     content = panel.query_one("#detail-content", Static)
     # Static in this Textual version exposes the raw value passed to update()
@@ -576,12 +584,7 @@ async def test_a_hostile_description_is_never_interpreted_as_markup():
 
 @pytest.mark.asyncio
 async def test_shift_down_scrolls_an_overflowing_detail():
-    # Blank-line-separated, not just "\n"-joined: consecutive plain lines are
-    # one soft-wrapped Markdown paragraph, so a handful of short "line N"
-    # tokens reflow into far fewer rows than lines — not reliably enough to
-    # overflow the (now taller, 60%) detail viewport. Each line as its own
-    # paragraph guarantees real row count regardless of pane height.
-    long_description = "\n\n".join(f"line {index}" for index in range(80))
+    long_description = _overflowing_description()
     panel = panel_with(issue("ENG-1"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
         await open_detail(pilot, panel)
@@ -596,12 +599,7 @@ async def test_shift_down_scrolls_an_overflowing_detail():
 
 @pytest.mark.asyncio
 async def test_refresh_preserves_scroll_but_a_cursor_move_resets_it():
-    # Blank-line-separated, not just "\n"-joined: consecutive plain lines are
-    # one soft-wrapped Markdown paragraph, so a handful of short "line N"
-    # tokens reflow into far fewer rows than lines — not reliably enough to
-    # overflow the (now taller, 60%) detail viewport. Each line as its own
-    # paragraph guarantees real row count regardless of pane height.
-    long_description = "\n\n".join(f"line {index}" for index in range(80))
+    long_description = _overflowing_description()
     panel = panel_with(issue("ENG-1"), issue("ENG-2"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
         await open_detail(pilot, panel)
@@ -799,12 +797,7 @@ def test_render_detail_shows_nothing_when_no_comments_are_hidden():
 async def test_the_gutter_shows_a_down_arrow_then_switches_to_an_up_arrow():
     from smorg.shell.panel import _DetailGutter
 
-    # Blank-line-separated, not just "\n"-joined: consecutive plain lines are
-    # one soft-wrapped Markdown paragraph, so a handful of short "line N"
-    # tokens reflow into far fewer rows than lines — not reliably enough to
-    # overflow the (now taller, 60%) detail viewport. Each line as its own
-    # paragraph guarantees real row count regardless of pane height.
-    long_description = "\n\n".join(f"line {index}" for index in range(80))
+    long_description = _overflowing_description()
     panel = panel_with(issue("ENG-1"))
     async with _LinearPanelHarness(panel).run_test() as pilot:
         await open_detail(pilot, panel)

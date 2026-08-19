@@ -19,13 +19,19 @@ What's ahead, as feature sets per release. Design history lives in git;
 ## v1.1.1 - bottom banner tweaks
 
 - Change the switch tab reserved keybinds
+- Enforce using the shift, control, and command symbols instead of `text`
+  * This also includes enforcing `+` for any combination (`^p` -> `^ + p`)
 - Add visual feedback to the refresh keybind
+- Investigate the logic for `seen` and `updated_at`:
+  * Is it hard to have a binding to highlight changes?
+  * Keep `mark all as seen`, add `mark as unseen`
 
 ## v1.2.0 — setup and open-source release
 
 - PATH setup: when `oflow` is not on PATH, prompt the user and set it up
-- Publish to PyPI so `uvx smorg` works
+- Publish to PyPI so `uvx smorg` works (includes CI release flow)
 - `SECURITY.md`
+- Add `CODEOWNERS`, with me as owning everything, and requiring my approval for PRs
 
 ## Later, deliberately unscheduled
 
@@ -33,9 +39,3 @@ What's ahead, as feature sets per release. Design history lives in git;
 - `remote` (write) actions, behind confirmation and explicit write scopes
 - Mouse support, desktop notifications, and background polling stay excluded
   by design unless revisited
-- Attachments (e.g. Linear's GitHub PR attachments) as a possible detail-pane
-  section — requires fetching the issue's `attachments` field, which the
-  current `get_issue` call doesn't request
-- An optional config list of extra path roots for the inline-code
-  local-path-underline check, for users who run `smorg` from outside the
-  workspace root the code paths in an issue are actually relative to

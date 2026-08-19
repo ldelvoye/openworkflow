@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from smorg.auth import oauth
+from smorg.auth.login import LoginCancelled, perform_login
 from smorg.cli import run_login
 
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
@@ -64,7 +65,7 @@ def browser_sending(monkeypatch, *paths: str) -> None:
         threading.Thread(target=deliver, daemon=True).start()
         return True
 
-    monkeypatch.setattr("smorg.cli.webbrowser.open", fake_open)
+    monkeypatch.setattr("smorg.auth.login.webbrowser.open", fake_open)
 
 
 def test_login_returns_the_client_id_and_credentials(monkeypatch):
@@ -163,3 +164,27 @@ def test_a_registered_client_is_reused_rather_than_registered_again(monkeypatch)
     client_id, _ = run_login(client, PROVIDER, "client-existing", port=0, timeout=10)
 
     assert client_id == "client-existing"
+
+
+# --- perform_login's cancellation, used by the in-app connect modal ---
+
+
+def test_login_cancelled_is_an_oauth_error():
+    assert issubclass(LoginCancelled, oauth.OAuthError)
+
+
+def test_cancelling_before_the_callback_arrives_raises_login_cancelled(monkeypatch):
+    monkeypatch.setattr("smorg.auth.login.webbrowser.open", lambda url: True)
+    cancelled = threading.Event()
+    cancelled.set()
+
+    with pytest.raises(LoginCancelled):
+        perform_login(
+            oauth_client(),
+            PROVIDER,
+            None,
+            on_authorize_url=lambda url: None,
+            cancelled=cancelled,
+            port=0,
+            timeout=10,
+        )

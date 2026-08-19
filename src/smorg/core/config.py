@@ -11,8 +11,15 @@ import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import tomli_w
+
+if TYPE_CHECKING:
+    # Deferred: contract.py's import chain (auth.oauth -> auth.store) loops
+    # back to this module, so a real import here would cycle; safe since
+    # Manifest/ConnectionPath are only used in type positions below.
+    from smorg.core.contract import ConnectionPath, Manifest
 
 CONFIG_DIR_ENV = "SMORG_CONFIG_DIR"
 DIRECTORY_MODE = 0o700
@@ -35,6 +42,7 @@ class MalformedConfigError(ConfigError):
 class TabConfig:
     integration: str
     client_id: str | None = None
+    connection: str | None = None
 
 
 @dataclass(frozen=True)
@@ -121,8 +129,12 @@ def load_config() -> Config:
     try:
         raw = tomllib.loads(path.read_text())
         entries = raw.get("tabs", [])
-        tabs = tuple(
-            TabConfig(integration=entry["integration"], client_id=entry.get("client_id"))
+        tabs = tuple[TabConfig, ...](
+            TabConfig(
+                integration=entry["integration"],
+                client_id=entry.get("client_id"),
+                connection=entry.get("connection"),
+            )
             for entry in entries
         )
     except (tomllib.TOMLDecodeError, KeyError, TypeError, AttributeError) as error:
@@ -136,9 +148,11 @@ def save_config(config: Config) -> None:
     ensure_config_dir()
     payload = {
         "tabs": [
-            # TOML has no null, so an absent client_id is omitted rather than emitted.
+            # TOML has no null, so an absent client_id/connection is omitted rather
+            # than emitted.
             {"integration": tab.integration}
             | ({"client_id": tab.client_id} if tab.client_id else {})
+            | ({"connection": tab.connection} if tab.connection else {})
             for tab in config.tabs
         ]
     }
@@ -151,3 +165,21 @@ def add_tab(config: Config, tab: TabConfig) -> Config:
         if existing.integration == tab.integration:
             return Config(tabs=config.tabs[:index] + (tab,) + config.tabs[index + 1 :])
     return Config(tabs=config.tabs + (tab,))
+
+
+def tab_for(config: Config, integration_id: str) -> TabConfig | None:
+    return next((tab for tab in config.tabs if tab.integration == integration_id), None)
+
+
+def resolve_connection(
+    manifest: Manifest, tab: TabConfig | None
+) -> tuple[ConnectionPath, str | None]:
+    """The connection path a possibly-unconfigured tab uses, and its client id.
+    Raises ValueError when tab.connection names a path no longer declared."""
+    if tab is None:
+        recorded_connection = None
+        client_id = None
+    else:
+        recorded_connection = tab.connection
+        client_id = tab.client_id
+    return manifest.connection(recorded_connection), client_id

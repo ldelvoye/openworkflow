@@ -24,12 +24,15 @@ class ShellKey:
 # The shell's own keymap, checked ahead of the focused widget via
 # priority=True. shift+right carries the merged key_display for both
 # directions so the footer shows one "switch tab" entry instead of two.
+# ctrl+p is declared here (not left to Textual's default) so its footer hint
+# reads "menu"; show=False since the footer renders it separately regardless.
 SHELL_KEYS = (
     ShellKey("shift+left", "previous_tab", "switch tab", show=False),
     ShellKey("shift+right", "next_tab", "switch tab", key_display="⇧ + ←/→"),
     ShellKey("r", "refresh", "refresh"),
     ShellKey("m", "mark_all_seen", "mark all seen"),
     ShellKey("question_mark", "help", "help"),
+    ShellKey("ctrl+p", "command_palette", "menu", show=False),
     ShellKey("q", "quit", "quit"),
 )
 

@@ -69,6 +69,10 @@ class SeenState:
         for item in items:
             self.mark_seen(integration_id, item)
 
+    def forget(self, integration_id: str) -> None:
+        """Drop this integration's marks. An id with no marks is a no-op."""
+        self._seen.pop(integration_id, None)
+
     def save(self) -> None:
         ensure_config_dir()
         write_private_file(state_path(), json.dumps(self._seen))

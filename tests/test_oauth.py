@@ -13,6 +13,7 @@ from smorg.auth.oauth import (
     build_authorize_url,
     discover,
     exchange_code,
+    extra_scopes_warning,
     make_pkce_pair,
     refresh_credentials,
     register_client,
@@ -279,3 +280,25 @@ def test_revoke_reports_failure_instead_of_raising(metadata):
         access_token="at-1", refresh_token="rt-1", expires_at=None, scope="read"
     )
     assert revoke(client_returning(handler), metadata, "client-abc", credentials) is False
+
+
+# --- extra_scopes_warning: one wording shared by the CLI print and the TUI toast ---
+
+
+def test_extra_scopes_warning_names_the_scopes_beyond_what_was_requested():
+    credentials = Credentials(
+        access_token="at", refresh_token="rt", expires_at=None, scope="read write"
+    )
+
+    warning = extra_scopes_warning("linear", "Linear", PROVIDER, credentials)
+
+    assert warning is not None
+    assert "write" in warning
+    assert "did not ask for" in warning
+    assert "smorg logout linear" in warning
+
+
+def test_extra_scopes_warning_is_none_when_granted_matches_requested():
+    credentials = Credentials(access_token="at", refresh_token="rt", expires_at=None, scope="read")
+
+    assert extra_scopes_warning("linear", "Linear", PROVIDER, credentials) is None

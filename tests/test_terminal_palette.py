@@ -7,9 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from smorg.shell.terminal_palette import (
+    MINIMUM_CONTRAST_RATIO,
     TerminalPalette,
+    contrast_ratio,
     parse_palette,
     query_terminal_palette,
+    readable,
+    readable_theme,
 )
 
 
@@ -98,6 +102,62 @@ def test_to_terminal_theme_splits_normal_and_bright_at_slot_eight():
     # ansi_colors is a Palette of all 16, normal (0-7) followed by bright (8-15).
     assert theme.ansi_colors[0].rgb == "rgb(0,0,0)"
     assert theme.ansi_colors[8].rgb == "rgb(8,8,8)"
+
+
+# --- The readability floor a screenshot has to clear ---
+
+# Cursor's cream terminal background, the case that motivated the floor.
+CREAM = (0xFB, 0xF5, 0xDF)
+
+
+@pytest.mark.parametrize(
+    "foreground,background",
+    [
+        ((0, 0, 0), (255, 255, 255)),  # the maximum, 21:1
+        ((0xF4, 0x00, 0x5F), (0x0C, 0x0C, 0x0C)),  # 4.67:1, just over the floor
+    ],
+)
+def test_a_foreground_that_already_reads_well_is_returned_untouched(foreground, background):
+    assert readable(foreground, background) == foreground
+
+
+@pytest.mark.parametrize(
+    "foreground,background",
+    [
+        ((0xC1, 0xC3, 0xC7), CREAM),  # pale grey on cream: 1.62:1
+        ((0xD7, 0xD1, 0x1F), CREAM),  # ANSI yellow on cream: 1.48:1
+        ((0, 0, 0), (10, 20, 30)),  # black on near-black: brighten, not darken
+        ((128, 128, 128), (128, 128, 128)),  # the worst case: no contrast at all
+    ],
+)
+def test_an_unreadable_foreground_is_lifted_until_it_clears_the_floor(foreground, background):
+    lifted = readable(foreground, background)
+
+    assert contrast_ratio(lifted, background) >= MINIMUM_CONTRAST_RATIO
+
+
+def test_lifting_moves_luminance_without_repainting_the_color():
+    # A floor met by turning everything grey would pass the test above while
+    # throwing away the palette the screenshot exists to show.
+    red, green, blue = readable((0xD7, 0xD1, 0x1F), CREAM)
+
+    assert red > blue and green > blue  # still yellow, not grey
+
+
+def test_a_lifted_theme_keeps_its_background_and_clears_the_floor_everywhere():
+    unreadable = TerminalPalette(
+        background=(0x0C, 0x0C, 0x0C),
+        foreground=(0x1A, 0x1A, 0x1A),
+        ansi=tuple((index, index, index) for index in range(16)),
+    ).to_terminal_theme()
+
+    lifted = readable_theme(unreadable)
+
+    background = lifted.background_color
+    assert background == unreadable.background_color
+    colors = [lifted.foreground_color] + [lifted.ansi_colors[index] for index in range(16)]
+    worst = min(contrast_ratio(color, background) for color in colors)
+    assert worst >= MINIMUM_CONTRAST_RATIO
 
 
 def test_query_terminal_palette_returns_none_without_a_real_terminal_on_both_ends(monkeypatch):

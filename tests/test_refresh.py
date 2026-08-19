@@ -31,10 +31,14 @@ def isolated(tmp_path, monkeypatch):
 def credentials(
     expires_in: timedelta | None, refresh_token: str | None = "refresh-1"
 ) -> Credentials:
+    if expires_in is not None:
+        expires_at = NOW + expires_in
+    else:
+        expires_at = None
     return Credentials(
         access_token="access-old",
         refresh_token=refresh_token,
-        expires_at=NOW + expires_in if expires_in is not None else None,
+        expires_at=expires_at,
         scope="read",
     )
 

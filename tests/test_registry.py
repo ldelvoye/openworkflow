@@ -10,13 +10,19 @@ from smorg.core.contract import (
     Action,
     ActionClass,
     AuthExpired,
+    ConnectionPath,
     IntegrationError,
     Item,
     Malformed,
     Manifest,
     Unavailable,
 )
-from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
+from smorg.core.registry import (
+    UnknownIntegration,
+    get_integration,
+    known_integration_ids,
+    manifests,
+)
 from smorg.shell.panel import Panel
 
 PROVIDER = ProviderConfig(
@@ -24,13 +30,18 @@ PROVIDER = ProviderConfig(
     scopes=("read",),
     client_name="smorg",
 )
+DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", provider=PROVIDER),)
 
 
-def manifest(identifier: str = "fake", actions: tuple[Action, ...] = ()) -> Manifest:
+def manifest(
+    identifier: str = "fake",
+    actions: tuple[Action, ...] = (),
+    connections: tuple[ConnectionPath, ...] = DEFAULT_CONNECTIONS,
+) -> Manifest:
     return Manifest(
         id=identifier,
         display_name=identifier.title(),
-        provider=PROVIDER,
+        connections=connections,
         stale_after=timedelta(minutes=5),
         actions=actions,
     )
@@ -90,6 +101,30 @@ def test_manifest_rejects_a_reserved_shell_key():
         )
 
 
+def test_manifest_rejects_empty_connections():
+    with pytest.raises(ValueError, match="no connection path"):
+        manifest(connections=())
+
+
+def test_manifest_rejects_duplicate_connection_ids():
+    with pytest.raises(ValueError, match="duplicate connection path"):
+        manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),) * 2)
+
+
+def test_connection_with_no_chosen_id_returns_the_first_declared_path():
+    mcp = ConnectionPath(id="mcp", provider=PROVIDER)
+    api_key = ConnectionPath(id="api-key", provider=PROVIDER)
+    declared = manifest(connections=(mcp, api_key))
+    assert declared.connection(None) is mcp
+
+
+def test_connection_with_an_unknown_id_names_the_declared_ones():
+    declared = manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),))
+    with pytest.raises(ValueError, match="mcp") as excinfo:
+        declared.connection("nope")
+    assert "nope" in str(excinfo.value)
+
+
 def test_get_integration_returns_the_registered_object(registered):
     integrations = registered(manifest("linear"))
     assert get_integration("linear") is integrations[0]
@@ -113,3 +148,17 @@ def test_unknown_integration_when_nothing_is_registered(registered):
     registered()
     with pytest.raises(UnknownIntegration, match="no integrations"):
         get_integration("jira")
+
+
+def test_registry_refuses_two_integrations_sharing_an_id(registered):
+    registered(manifest("linear"), manifest("linear"))
+    with pytest.raises(ValueError, match="linear"):
+        get_integration("linear")
+
+
+def test_manifests_enumerates_every_registered_one_sorted_by_id(registered):
+    """Also proves manifests() reads the same per-call INTEGRATIONS import as
+    _by_id: the registered fixture only takes effect through that indirection.
+    """
+    registered(manifest("sentry"), manifest("linear"))
+    assert [entry.id for entry in manifests()] == ["linear", "sentry"]
