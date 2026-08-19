@@ -147,12 +147,21 @@ async def test_an_empty_app_renders_the_menu_hint():
 
 
 @pytest.mark.asyncio
-async def test_shift_right_switches_to_the_next_tab():
-    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
+async def test_l_switches_to_the_next_tab():
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"), TabConfig("gamma")))
     async with app.run_test() as pilot:
         assert app.active_tab == "alpha"
-        await pilot.press("shift+right")
+        await pilot.press("l")
         assert app.active_tab == "beta"
+
+
+@pytest.mark.asyncio
+async def test_h_switches_to_the_previous_tab_wrapping_backward():
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"), TabConfig("gamma")))
+    async with app.run_test() as pilot:
+        assert app.active_tab == "alpha"
+        await pilot.press("h")
+        assert app.active_tab == "gamma"
 
 
 def test_app_bindings_are_derived_from_shell_keys():
@@ -200,7 +209,7 @@ async def test_switching_to_a_tab_fetches_it(monkeypatch):
     )
     async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
         fetched.clear()
-        await pilot.press("shift+right")
+        await pilot.press("l")
     assert fetched == ["beta"]
 
 
@@ -224,7 +233,7 @@ async def test_the_app_never_schedules_a_timer(monkeypatch):
     )
 
     async with SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta"))).run_test() as pilot:
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.app.workers.wait_for_complete()
 
     assert scheduled == []
@@ -270,7 +279,7 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
     app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("linear")))
     async with app.run_test() as pilot:
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.pause()
         await pilot.press("down")
         await pilot.pause()
@@ -280,30 +289,15 @@ async def test_switching_tabs_focuses_the_panel_so_arrow_keys_work(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_j_and_k_do_nothing_in_the_shell_today(monkeypatch):
-    """j and k are no longer reserved — an integration may bind them — but the
-    shell itself still doesn't, so pressing them here is a no-op either way.
-    """
-    issues = (issue("ENG-1"), issue("ENG-2"))
-
-    def fake_refresh(self, integration_id, panel, force=False):
-        panel.items = issues
-        panel.state = PanelState.READY
-
-    monkeypatch.setattr("smorg.shell.app.SmorgApp.refresh_tab", fake_refresh)
-
-    app = SmorgApp(tabs=(TabConfig("linear"), TabConfig("alpha")))
+async def test_shift_arrows_no_longer_switch_tabs():
+    """h/l took over tab switching, freeing shift+left/right for manifests —
+    so pressing them must leave the active tab alone."""
+    app = SmorgApp(tabs=(TabConfig("alpha"), TabConfig("beta")))
     async with app.run_test() as pilot:
-        await pilot.pause()
-        assert app.active_tab == "linear"
-        await pilot.press("j")
-        await pilot.press("k")
-        await pilot.pause()
-        panel = app.query_one(LinearPanel)
-        active_tab_after = app.active_tab
-
-    assert active_tab_after == "linear"
-    assert panel.selected_url() == issues[0].url
+        assert app.active_tab == "alpha"
+        await pilot.press("shift+right")
+        await pilot.press("shift+left")
+        assert app.active_tab == "alpha"
 
 
 @pytest.mark.asyncio
@@ -582,7 +576,7 @@ async def test_shell_keys_still_work_after_the_overlay_closes(monkeypatch):
         await pilot.pause()
 
         fetched.clear()
-        await pilot.press("shift+right")
+        await pilot.press("l")
         await pilot.press("r")
         await pilot.pause()
 
