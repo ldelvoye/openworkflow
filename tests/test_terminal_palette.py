@@ -10,10 +10,10 @@ from smorg.shell.terminal_palette import (
     MINIMUM_CONTRAST_RATIO,
     TerminalPalette,
     contrast_ratio,
+    ensure_contrast,
+    ensure_theme_contrast,
     parse_palette,
     query_terminal_palette,
-    readable,
-    readable_theme,
 )
 
 
@@ -118,7 +118,7 @@ CREAM = (0xFB, 0xF5, 0xDF)
     ],
 )
 def test_a_foreground_that_already_reads_well_is_returned_untouched(foreground, background):
-    assert readable(foreground, background) == foreground
+    assert ensure_contrast(foreground, background) == foreground
 
 
 @pytest.mark.parametrize(
@@ -131,7 +131,7 @@ def test_a_foreground_that_already_reads_well_is_returned_untouched(foreground, 
     ],
 )
 def test_an_unreadable_foreground_is_lifted_until_it_clears_the_floor(foreground, background):
-    lifted = readable(foreground, background)
+    lifted = ensure_contrast(foreground, background)
 
     assert contrast_ratio(lifted, background) >= MINIMUM_CONTRAST_RATIO
 
@@ -139,7 +139,7 @@ def test_an_unreadable_foreground_is_lifted_until_it_clears_the_floor(foreground
 def test_lifting_moves_luminance_without_repainting_the_color():
     # A floor met by turning everything grey would pass the test above while
     # throwing away the palette the screenshot exists to show.
-    red, green, blue = readable((0xD7, 0xD1, 0x1F), CREAM)
+    red, green, blue = ensure_contrast((0xD7, 0xD1, 0x1F), CREAM)
 
     assert red > blue and green > blue  # still yellow, not grey
 
@@ -151,7 +151,7 @@ def test_a_lifted_theme_keeps_its_background_and_clears_the_floor_everywhere():
         ansi=tuple((index, index, index) for index in range(16)),
     ).to_terminal_theme()
 
-    lifted = readable_theme(unreadable)
+    lifted = ensure_theme_contrast(unreadable)
 
     background = lifted.background_color
     assert background == unreadable.background_color

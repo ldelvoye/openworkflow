@@ -1,7 +1,7 @@
 """The browser-driven half of OAuth: run a loopback callback server, send the
 user to authorize, wait for the redirect, and exchange the code.
 
-Print-free — the caller decides how to surface the authorize URL
+Print-free: the caller decides how to surface the authorize URL
 (`on_authorize_url`) and whether the wait can be cancelled (`cancelled`).
 `cli.run_login` is the printing frontend; the in-app connect modal is the other.
 """
@@ -21,7 +21,7 @@ import httpx
 from smorg.auth import oauth
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
-from smorg.core.text import printable
+from smorg.core.text import sanitize_line
 
 LOGIN_TIMEOUT_SECONDS = 300
 
@@ -129,7 +129,7 @@ def perform_login(
                 raise LoginCancelled("login cancelled before the browser callback arrived")
             raise oauth.OAuthError("timed out waiting for the browser callback")
         if "error" in received:
-            raise oauth.OAuthError(f"authorization was refused: {printable(received['error'])}")
+            raise oauth.OAuthError(f"authorization was refused: {sanitize_line(received['error'])}")
 
         credentials = oauth.exchange_code(
             client, metadata, client_id, received["code"], verifier, redirect_uri

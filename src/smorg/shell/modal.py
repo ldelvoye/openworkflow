@@ -6,9 +6,9 @@ from textual.screen import ModalScreen
 
 
 class ModalBox(ModalScreen[None]):
-    """A modal centered on screen, with a round-bordered box for whichever
-    container a subclass composes — tag that container with the "box" CSS
-    class to opt it into the shared border/padding/background.
+    """A modal centered on screen, with a round-bordered box for whichever container a subclass
+    composes. Tag that container with the "box" CSS class to opt into the shared
+    border/padding/background.
     """
 
     DEFAULT_CSS = """

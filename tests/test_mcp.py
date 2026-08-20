@@ -3,7 +3,7 @@ import json
 import httpx
 import pytest
 
-from smorg.core.contract import AuthExpired, Malformed, Unavailable
+from smorg.core.contract import AccessNotAllowed, AuthExpired, Malformed, Unavailable
 from smorg.core.mcp import MCP_PROTOCOL_VERSION, McpClient, McpSession
 
 ENDPOINT = "https://example.invalid/mcp"
@@ -186,6 +186,19 @@ def test_a_401_becomes_auth_expired():
         return httpx.Response(401, json={"error": "invalid_token"})
 
     with pytest.raises(AuthExpired):
+        client_for(handler).call_tool("list_issues", {})
+
+
+def test_a_403_does_not_read_as_expired():
+    """A 403 means the credentials authenticated but lack permission, so the
+    tab must not say they expired — re-connecting with the same access fixes
+    nothing.
+    """
+
+    def handler(request):
+        return httpx.Response(403, json={"error": "insufficient_scope"})
+
+    with pytest.raises(AccessNotAllowed):
         client_for(handler).call_tool("list_issues", {})
 
 

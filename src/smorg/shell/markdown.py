@@ -1,10 +1,9 @@
 """Rendering markdown the way this app wants it, for any panel to reuse.
 
-rich.markdown.Markdown's own inline-code and link styles assume a dark
-terminal and truecolor rendering; Markdown here restyles both to stay
-legible on either theme using ANSI-named colors only, and adds one more
-touch — a code span naming a real file or directory on disk is underlined,
-the same affordance hint a terminal gives before a cmd/ctrl-click.
+rich.markdown.Markdown's own inline-code and link styles assume a dark terminal and truecolor
+rendering; Markdown here restyles both to stay legible on either theme using ANSI-named colors
+only, and underlines a code span that names a real file or directory on disk, the same hint a
+terminal gives before a cmd/ctrl-click.
 """
 
 from __future__ import annotations
@@ -50,11 +49,7 @@ def _underline_if_local_path(segment: Segment) -> Segment:
 
 
 class Markdown(_RichMarkdown):
-    """rich.markdown.Markdown with this app's code/link styling (see
-    _MARKDOWN_THEME) and inline code spans that resolve to a real file or
-    directory on disk underlined, the same affordance hint a terminal gives
-    before a cmd/ctrl-click.
-    """
+    """rich.markdown.Markdown with this app's code/link theme and real local paths underlined."""
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         console.push_theme(_MARKDOWN_THEME)
@@ -63,4 +58,7 @@ class Markdown(_RichMarkdown):
         finally:
             console.pop_theme()
         for item in rendered:
-            yield _underline_if_local_path(item) if isinstance(item, Segment) else item
+            if isinstance(item, Segment):
+                yield _underline_if_local_path(item)
+            else:
+                yield item

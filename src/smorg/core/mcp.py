@@ -1,17 +1,6 @@
-"""JSON-RPC over HTTP against an MCP server.
-
-Nothing here knows which service is on the other end or what any tool returns.
-It removes three layers of wrapping — SSE framing, the JSON-RPC envelope, and a
-JSON string inside a text content block — and hands back the decoded payload.
-
-The absence of structuredContent is why that third layer exists: servers are free
-to return prose in a text block, so a payload that does not parse is a Malformed
-tab rather than an exception nobody expected. Every response is treated as
-untrusted shape as well as untrusted content — a field that should be an object
-may be a string, and that must degrade one tab, not stop the app.
-
-Targets protocol 2025-11-25. See docs/mcp-protocol.md for why that version, how
-to recognise a server that has moved past it, and what upgrading costs.
+"""JSON-RPC over HTTP against an MCP server, service-agnostic: unwraps SSE framing, the JSON-RPC
+envelope, and the JSON string inside a text content block, treating shape and content as untrusted
+throughout.
 """
 
 from __future__ import annotations
@@ -23,23 +12,20 @@ from urllib.parse import urlsplit
 import httpx
 
 from smorg import __version__
-from smorg.core.contract import AuthExpired, Malformed, Unavailable
-from smorg.core.text import printable
+from smorg.core.contract import AccessNotAllowed, AuthExpired, Malformed, Unavailable
+from smorg.core.text import sanitize_line
 
-# A version we have verified, not the newest published one — a server that
-# doesn't recognise the requested version may reject it outright rather
-# than negotiate down, so optimism breaks connections.
+# Verified working version for current integrations. Using a different version may break things.
 MCP_PROTOCOL_VERSION = "2025-11-25"
 
-# Revisions this client's request shape actually works against. Anything
-# outside this range needs different code, not just a different string —
-# earlier versions lack Streamable HTTP; later ones drop the handshake entirely.
-SUPPORTED_PROTOCOL_VERSIONS = frozenset[str]({"2025-03-26", "2025-06-18", "2025-11-25"})
+# Revisions this client's request shape actually works against.
+SUPPORTED_PROTOCOL_VERSIONS = frozenset({"2025-03-26", "2025-06-18", "2025-11-25"})
 
-# Addresses only. "localhost" is a name, so whether it stays on this machine
-# depends on resolution — the one thing the exemption below assumes it never has
-# to trust.
-LOOPBACK_HOSTS = frozenset[str]({"127.0.0.1", "::1"})
+# Only use addresses, not 'localhost'.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1"})
+
+# Learned per endpoint on first use, kept for the process lifetime
+_negotiated_versions: dict[str, str] = {}
 
 
 class McpClient:
@@ -54,7 +40,9 @@ class McpClient:
         self._endpoint = endpoint
         self._token = token
         self._http = http
-        self._version = version or MCP_PROTOCOL_VERSION
+        if version is None:
+            version = MCP_PROTOCOL_VERSION
+        self._version = version
 
     @property
     def version(self) -> str:
@@ -74,8 +62,10 @@ class McpClient:
             response = self._http.post(self._endpoint, headers=self._headers(), json=body)
         except httpx.HTTPError as error:
             raise Unavailable(f"could not reach {self._endpoint}") from error
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             raise AuthExpired("the server rejected the stored credentials")
+        if response.status_code == 403:
+            raise AccessNotAllowed("the stored credentials lack access to this server")
         if response.status_code >= 400:
             raise Unavailable(f"{self._endpoint} returned HTTP {response.status_code}")
         return response
@@ -83,9 +73,8 @@ class McpClient:
     def initialize(self) -> None:
         """Announce the client and adopt whatever version the server names.
 
-        This is the only way to learn which revision a server actually speaks, so
-        it is load-bearing rather than a formality: a server may support an older
-        version than we ask for, and every later request has to match.
+        This is the only way to learn which revision a server actually speaks, load-bearing: a
+        server may support an older version than we ask for, and every later request has to match.
         """
         response = self._post(
             {
@@ -99,11 +88,11 @@ class McpClient:
                 },
             }
         )
-        negotiated = _negotiated_version(response)
+        negotiated = _negotiated_version_of(response)
         if negotiated is not None and negotiated != self._version:
             if negotiated not in SUPPORTED_PROTOCOL_VERSIONS:
                 raise Malformed(
-                    f"the server speaks protocol {printable(negotiated, 32)}, which this "
+                    f"the server speaks protocol {sanitize_line(negotiated, 32)}, which this "
                     f"build does not. See docs/mcp-protocol.md."
                 )
             self._version = negotiated
@@ -118,25 +107,13 @@ class McpClient:
                 "params": {"name": name, "arguments": arguments},
             }
         )
-        return _payload_of(_envelope_of(response), name)
-
-
-# Learned per endpoint on first use, kept for the process lifetime — see
-# McpSession, the sole owner of this cache.
-_negotiated_versions: dict[str, str] = {}
-
-
-def reset_negotiated_versions() -> None:
-    """Clear the per-endpoint negotiated-version cache. For tests only —
-    a real process keeps it for its whole lifetime."""
-    _negotiated_versions.clear()
+        envelope = _envelope_of(response)
+        return _payload_of(envelope, name)
 
 
 class McpSession:
-    """One caller's use of an MCP endpoint across a batch of calls: skips
-    the handshake once a version has been negotiated for that endpoint,
-    and retries a call exactly once — with a fresh handshake — if that
-    optimism turns out wrong.
+    """Calls to one MCP endpoint, skipping the handshake once its version is known. A failure after
+    a skip earns one retry with a fresh handshake.
     """
 
     def __init__(self, endpoint: str, token: str, http: httpx.Client) -> None:
@@ -154,9 +131,8 @@ class McpSession:
         except (Malformed, Unavailable):
             if not self._skipped_handshake:
                 raise
-            # The skipped handshake may itself be the failure; pay for a full
-            # one and retry once. AuthExpired is deliberately not recovered:
-            # a rejected token is not something a handshake can fix.
+            # Auth errors are deliberately not retried: a handshake cannot fix a rejected or
+            # under-privileged token.
             _negotiated_versions.pop(self._endpoint, None)
             self._skipped_handshake = False
             self._client.initialize()
@@ -164,30 +140,31 @@ class McpSession:
             return self._client.call_tool(name, arguments)
 
 
+def reset_negotiated_versions() -> None:
+    """Clear the per-endpoint negotiated-version cache. For tests only."""
+    _negotiated_versions.clear()
+
+
 def _require_private_transport(endpoint: str) -> None:
-    """Refuse to send a bearer token anywhere it could be read in transit.
-
-    Loopback is exempt, like the OAuth redirect: plaintext that never leaves
-    the machine isn't exposed, and MCP servers commonly run locally.
-
-    Malformed, not Unavailable — a bad endpoint is permanent, so showing
-    last-good data marked stale would promise a recovery that can't come.
-    """
+    """Refuse to send a bearer token anywhere it could be read in transit."""
     parts = urlsplit(endpoint)
     if parts.scheme == "https":
         return
     if parts.scheme == "http" and parts.hostname in LOOPBACK_HOSTS:
         return
-    raise Malformed(f"refusing to send credentials to a non-https endpoint: {printable(endpoint)}")
+    raise Malformed(
+        f"refusing to send credentials to a non-https endpoint: {sanitize_line(endpoint)}"
+    )
 
 
-def _negotiated_version(response: httpx.Response) -> str | None:
+def _negotiated_version_of(response: httpx.Response) -> str | None:
     try:
-        result = _envelope_of(response).get("result")
+        envelope = _envelope_of(response)
     except Malformed:
-        # An unreadable handshake is not fatal on its own: the version we asked
-        # for is the one we send, and the next request will report a real failure.
+        # An unreadable handshake is not fatal on its own: the version we asked for is the one we
+        # send, and the next request will report a real failure.
         return None
+    result = envelope.get("result")
     if not isinstance(result, dict):
         return None
     version = result.get("protocolVersion")
@@ -220,7 +197,7 @@ def _payload_of(envelope: dict[str, Any], tool: str) -> dict[str, Any]:
             detail = error.get("message", "unknown error")
         else:
             detail = error
-        raise Malformed(f"{tool} failed: {printable(str(detail))}")
+        raise Malformed(f"{tool} failed: {sanitize_line(str(detail))}")
 
     result = envelope.get("result")
     if not isinstance(result, dict):

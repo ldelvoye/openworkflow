@@ -1,16 +1,4 @@
-"""The terminal's real colors, so a screenshot shows what the user sees.
-
-smorg renders under Textual's "ansi-dark" theme, so on-screen colors resolve
-through the terminal's own palette; Textual's SVG export does not, and falls
-back to a fixed generic mapping instead. This module learns the real palette
-via OSC 4/10/11 so export_screenshot can use it. Queried once, in cli._run,
-strictly before SmorgApp exists — see query_terminal_palette below.
-
-A learned palette is what the terminal was configured with, not always what it
-draws: VS Code and Cursor lift low-contrast foregrounds at draw time and report
-the raw palette to OSC queries anyway. readable_theme below applies the same
-floor, so an export matches what is on screen there and stays legible elsewhere.
-"""
+"""The terminal's real colors, so a screenshot shows what the user sees."""
 
 from __future__ import annotations
 
@@ -36,12 +24,11 @@ MINIMUM_CONTRAST_RATIO = 4.5
 """W3C AA for body text, and the default of VS Code/Cursor's
 `terminal.integrated.minimumContrastRatio`."""
 
-# The terminal lifts a color in 10% steps rather than solving for the exact
-# ratio; matching the step size keeps an export on the same shade it draws.
+# The terminal lifts a color in 10% steps.
 _LIFT_STEP = 0.1
 
-# Batched into one write (16 OSC4 slots + OSC10/11) for a single round trip.
-# ST-terminated; _RESPONSE below also accepts a BEL-terminated reply.
+# Batched into one write (16 OSC4 slots + OSC10/11) for a single round trip. ST-terminated;
+# _RESPONSE below also accepts a BEL-terminated reply.
 _QUERY = "".join(f"\x1b]4;{i};?\x1b\\" for i in range(16)) + "\x1b]10;?\x1b\\" + "\x1b]11;?\x1b\\"
 
 _RESPONSE = re.compile(
@@ -49,12 +36,6 @@ _RESPONSE = re.compile(
     r"(?P<r>[0-9a-fA-F]{1,4})/(?P<g>[0-9a-fA-F]{1,4})/(?P<b>[0-9a-fA-F]{1,4})"
     r"(?:\x1b\\|\x07)"
 )
-
-
-def _scale(hex_digits: str) -> int:
-    """An OSC color component is 1-4 hex digits scaled to its own width, not 0-255."""
-    maximum = 16 ** len(hex_digits) - 1
-    return round(int(hex_digits, 16) * 255 / maximum)
 
 
 @dataclass(frozen=True)
@@ -111,16 +92,7 @@ def _toward_white(rgb: RGB) -> RGB:
     )
 
 
-def readable(foreground: RGB, background: RGB) -> RGB:
-    """`foreground` stepped away from `background` until the pair clears
-    MINIMUM_CONTRAST_RATIO. A pair that already clears it is returned unchanged.
-
-    Every channel moves the same fraction of its own distance to black or white,
-    so the color keeps its hue and only loses (or gains) luminance.
-
-    Direction is chosen by the background, not by which of the two is darker:
-    black text on a near-black background has to brighten, not darken further.
-    """
+def ensure_contrast(foreground: RGB, background: RGB) -> RGB:
     if contrast_ratio(foreground, background) >= MINIMUM_CONTRAST_RATIO:
         return foreground
     darken = contrast_ratio(BLACK, background) > contrast_ratio(WHITE, background)
@@ -130,35 +102,27 @@ def readable(foreground: RGB, background: RGB) -> RGB:
     else:
         step = _toward_white
         limit = WHITE
-    # The floor is always reachable: even the worst background clears 4.58:1
-    # against whichever of black or white it is further from. The limit check
-    # is a termination guard, not an expected outcome.
+    # Keep nudhing the color until readable
     adjusted = foreground
     while adjusted != limit and contrast_ratio(adjusted, background) < MINIMUM_CONTRAST_RATIO:
         adjusted = step(adjusted)
     return adjusted
 
 
-def readable_theme(theme: TerminalTheme) -> TerminalTheme:
-    """`theme` with its foreground and all 16 ANSI colors lifted to
-    MINIMUM_CONTRAST_RATIO against its own background. The background itself is
-    untouched — it is what everything else is measured against.
-    """
+def ensure_theme_contrast(theme: TerminalTheme) -> TerminalTheme:
     background: RGB = theme.background_color
-    foreground = readable(theme.foreground_color, background)
-    ansi = [readable(theme.ansi_colors[index], background) for index in range(16)]
+    foreground = ensure_contrast(theme.foreground_color, background)
+    ansi = [ensure_contrast(theme.ansi_colors[index], background) for index in range(16)]
     return TerminalTheme(background, foreground, ansi[:8], ansi[8:])
 
 
-def parse_palette(data: str) -> TerminalPalette | None:
-    """Parse OSC 4/10/11 responses into a palette. Pure and side-effect free
-    (fed a recorded string, not a live terminal) so it is cheaply testable.
+def _scale(hex_digits: str) -> int:
+    """An OSC color component is 1-4 hex digits scaled to its own width, not 0-255."""
+    maximum = 16 ** len(hex_digits) - 1
+    return round(int(hex_digits, 16) * 255 / maximum)
 
-    Returns None unless background, foreground, and all 16 ANSI slots were
-    found — a partial answer is treated as no answer, since a screenshot with
-    some colors real and others guessed would misinform more than one
-    consistently using the fallback mapping.
-    """
+
+def parse_palette(data: str) -> TerminalPalette | None:
     colors: dict[str, RGB] = {}
     for match in _RESPONSE.finditer(data):
         rgb = (_scale(match["r"]), _scale(match["g"]), _scale(match["b"]))
@@ -173,7 +137,7 @@ def parse_palette(data: str) -> TerminalPalette | None:
     if "background" not in colors or "foreground" not in colors:
         return None
     try:
-        ansi = tuple[RGB, ...](colors[str(index)] for index in range(16))
+        ansi = tuple(colors[str(index)] for index in range(16))
     except KeyError:
         return None
     return TerminalPalette(
@@ -182,9 +146,6 @@ def parse_palette(data: str) -> TerminalPalette | None:
 
 
 def _read_until_timeout(fd: int, timeout: float) -> str:
-    """Collect bytes for up to `timeout` seconds, stopping early once a full
-    palette has already been parsed out of what arrived so far.
-    """
     deadline = time.monotonic() + timeout
     chunks: list[bytes] = []
     while True:
@@ -218,17 +179,7 @@ def query_terminal_palette(
     stdin: _TTYStream | None = None,
     stdout: _TTYStream | None = None,
 ) -> TerminalPalette | None:
-    """Ask the terminal for its real palette.
-
-    Must run before SmorgApp exists — once Textual's driver owns stdin, it
-    would replay an OSC response as synthetic keypresses (the "r" in "rgb:"
-    would fire the refresh binding). Never raises: returns None if the
-    palette can't be learned, bounded by `timeout` so a silent terminal
-    doesn't hang startup.
-
-    `stdin`/`stdout` default to sys.stdin/sys.stdout; the keyword seam lets
-    tests pass fakes instead of patching the globals pytest's capture owns.
-    """
+    """Ask the terminal for its real palette. Must run before SmorgApp exists"""
     resolved_stdin: _TTYStream = sys.stdin if stdin is None else stdin
     resolved_stdout: _TTYStream = sys.stdout if stdout is None else stdout
     if not (resolved_stdin.isatty() and resolved_stdout.isatty()):
@@ -237,8 +188,7 @@ def query_terminal_palette(
         import termios
         import tty
     except ImportError:
-        # Not POSIX (Windows lacks both modules) — no safe way to set raw
-        # mode, so give up here.
+        # Not POSIX (Windows lacks both modules) — no safe way to set raw mode, so give up here.
         return None
 
     fd = resolved_stdin.fileno()

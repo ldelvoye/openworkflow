@@ -3,8 +3,8 @@
 The counterpart to auth/oauth.py, and the second connection capability the
 architecture left room for: no browser, no client registration, and nothing to
 refresh. The token is whatever the user created in the service's own settings,
-and stays valid until they revoke it or it expires — at which point the next
-fetch fails as AuthExpired, which is what tells them to paste a new one.
+and stays valid until they revoke it or it expires; the next fetch then fails
+as AuthExpired, which is what tells them to paste a new one.
 
 Nothing here ever puts the entered value in an error message. A rejected token
 is still a token, and the point of the store is that tokens do not leak.

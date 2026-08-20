@@ -1,10 +1,4 @@
-"""Linear's declaration.
-
-Data comes over the MCP endpoint rather than GraphQL because the workspace
-this targets issues no personal API keys, and the MCP server offers dynamic
-client registration — the token it returns is audience-bound to that
-endpoint, so GraphQL is not a fallback.
-"""
+"""Linear's declaration; connects to Linear's MCP endpoint with OAuth."""
 
 from __future__ import annotations
 
@@ -29,8 +23,6 @@ MANIFEST = Manifest(
     id="linear",
     display_name="Linear",
     connections=(ConnectionPath(id="mcp", method=PROVIDER),),
-    # Long enough that flicking between tabs does not refetch constantly, short
-    # enough that a glance after stepping away is current.
     stale_after=timedelta(minutes=5),
     actions=(Action(id="open", label="Open in Linear", key="o", action_class=ActionClass.LAUNCH),),
 )

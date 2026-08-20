@@ -43,7 +43,7 @@ not registered fails with "not supported" rather than half-working.
   and `fetch_detail` if your panel shows details. Pagination, filtering, and
   any service quirks are yours on purpose: measured across real MCP servers,
   none of it generalizes (see architecture.md). Sanitize server text with
-  `printable_block`, then service-specific normalization, then `capped` — in
+  `sanitize_block`, then service-specific normalization, then `truncate` — in
   that order.
 - **`panel.py`** — extend `Panel`, override its render hooks, and decide your
   policy: grouping, glyphs, ordering, and _when an interaction marks an item
@@ -66,7 +66,7 @@ not registered fails with "not supported" rather than half-working.
   yourself.
 - Refresh scheduling that follows attention, not a clock.
 - Per-tab failure isolation driven by the `IntegrationError` taxonomy
-  (`AuthExpired` / `Unavailable` / `Malformed`).
+  (`AuthExpired` / `AccessNotAllowed` / `Unavailable` / `Malformed`).
 - Seen-state loading and injection, so `mark_seen` below always has a live
   store to write into.
 
@@ -76,8 +76,7 @@ not registered fails with "not supported" rather than half-working.
   retry-once.
 - `required_string` / `optional_string` / `timestamp` (`core/shape.py`) —
   untrusted-shape guards that raise `Malformed`.
-- `printable` / `printable_block` / `capped` (`core/text.py`) — sanitizing
-  server text.
+- `sanitize_line` / `sanitize_block` / `truncate` (`core/text.py`) — sanitizing server text.
 - `Panel` and its render hooks (`shell/panel.py`) — the five states, the
   detail region, `mark_seen()` / `mark_all_seen()`.
 - the theme-safe `Markdown` widget (`shell/markdown.py`) — clickable links,
@@ -88,8 +87,9 @@ not registered fails with "not supported" rather than half-working.
 
 - Change marks — call `self.mark_seen(item)` when an interaction should
   count as "seen"; skip it and the feature simply doesn't exist for your tab.
-- The detail pane — implement `fetch_detail`; the shell fetches and caches
-  it for you off the UI thread, so your panel never touches the network.
+- The detail pane — implement `fetch_detail` (its own `SupportsDetail` protocol, feature-detected
+  by the shell); the shell fetches and caches it for you off the UI thread, so your panel never
+  touches the network. An integration without a detail pane simply doesn't define it.
 - Declared `Action`s — validated against reserved and duplicate keys at
   construction and surfaced in the `?` help listing; the key itself is still
   yours to bind, in `panel.py`'s own `BINDINGS`.
@@ -140,8 +140,8 @@ re-asserted at each call site, since call sites regress independently.
   grep-based test enforcing this (`test_the_panel_never_fetches`); copy it for
   your integration.
 - **Errors cross the seam only as `IntegrationError`** — pick `AuthExpired`
-  / `Unavailable` / `Malformed` by whether retrying would help; the
-  semantics live in [docs/architecture.md](docs/architecture.md).
+  / `AccessNotAllowed` / `Unavailable` / `Malformed` by what would fix the
+  failure; the semantics live in [docs/architecture.md](docs/architecture.md).
 - **Response shape is untrusted.** A server field that should be an object may
   be a string; that must surface as `Malformed`, never a traceback.
 - **Reserved keys can't be bound.** The shell owns its keymap

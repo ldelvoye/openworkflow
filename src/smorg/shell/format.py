@@ -1,8 +1,4 @@
-"""Small, integration-agnostic text formatting a panel's rendering can reuse.
-
-Nothing here talks to a service or knows about a specific integration's data
-shape — just formatting decisions any panel might want.
-"""
+"""Small, integration-agnostic text formatting a panel's rendering can reuse."""
 
 from __future__ import annotations
 
@@ -14,8 +10,7 @@ from smorg.auth.store import now
 def age(moment: datetime) -> str:
     """How long ago `moment` was, as a short "5m" / "3h" / "2d" label."""
     delta = now() - moment
-    # A future stamp is clock skew, and anything under a minute reads the
-    # same either way.
+    # A future stamp is clock skew, and anything under a minute reads the same either way.
     if delta.total_seconds() < 60:
         return "now"
     if delta.days >= 1:
