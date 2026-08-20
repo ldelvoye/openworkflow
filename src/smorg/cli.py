@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from getpass import getpass
 
 import httpx
 
@@ -18,7 +19,9 @@ from smorg.auth.store import (
     now,
     set_credentials,
 )
+from smorg.auth.token import InvalidToken, TokenPrompt, accepted_token, credentials_from_token
 from smorg.core.config import (
+    Config,
     ConfigError,
     TabConfig,
     add_tab,
@@ -27,7 +30,7 @@ from smorg.core.config import (
     save_config,
     tab_for,
 )
-from smorg.core.contract import Integration
+from smorg.core.contract import ConnectionPath, Integration
 from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
 from smorg.core.removal import remove_integration, revoke_best_effort
 from smorg.shell.app import SmorgApp
@@ -69,21 +72,27 @@ def _connect(integration_id: str) -> int:
         print(str(error), file=sys.stderr)
         return 1
 
+    method = path.method
+    if isinstance(method, TokenPrompt):
+        return _connect_with_token(integration, config, path, method)
+
+    provider = method
+
     with httpx.Client(timeout=30) as client:
         try:
-            client_id, credentials = run_login(client, path.provider, existing_client_id)
+            client_id, credentials = run_login(client, provider, existing_client_id)
         except oauth.OAuthError as error:
             print(f"connect failed: {error}", file=sys.stderr)
             return 1
 
-    _warn_on_extra_scopes(integration, path.provider, credentials)
+    _warn_on_extra_scopes(integration, provider, credentials)
 
     try:
         set_credentials(integration_id, credentials)
     except CredentialStoreError as error:
         # The token is live and about to become unreachable — nothing will hold
         # it, so nothing could revoke it later. Hand it back before giving up.
-        revoke_best_effort(path.provider, client_id, credentials)
+        revoke_best_effort(provider, client_id, credentials)
         print(str(error), file=sys.stderr)
         return 1
 
@@ -94,6 +103,42 @@ def _connect(integration_id: str) -> int:
         )
     )
     print(f"connected {integration.manifest.display_name} (scope: {credentials.scope})")
+    return 0
+
+
+def _connect_with_token(
+    integration: Integration, config: Config, path: ConnectionPath, prompt: TokenPrompt
+) -> int:
+    """Ask for a token the user created themselves and store it.
+
+    Re-running this is also the whole re-authentication story for a token
+    path: add_tab replaces the existing entry, and the new token overwrites
+    the old one in the store — which is what the "run: smorg connect" in an
+    expired tab's error is pointing at.
+    """
+    display_name = integration.manifest.display_name
+    print(f"{display_name} connects with a token you create yourself.")
+    print(f"create one at: {prompt.help_url}")
+    print(f"it needs: {prompt.scopes_hint}")
+    # getpass, not input: the token is a live credential and a terminal's
+    # scrollback outlives this command.
+    entered = getpass(f"{prompt.label}: ")
+    try:
+        token = accepted_token(entered)
+    except InvalidToken as error:
+        print(str(error), file=sys.stderr)
+        return 1
+
+    try:
+        set_credentials(integration.manifest.id, credentials_from_token(token))
+    except CredentialStoreError as error:
+        # Nothing to hand back, unlike the OAuth path: this token was not
+        # issued to us, and it stays the user's to revoke either way.
+        print(str(error), file=sys.stderr)
+        return 1
+
+    save_config(add_tab(config, TabConfig(integration=integration.manifest.id, connection=path.id)))
+    print(f"connected {display_name}")
     return 0
 
 
@@ -116,6 +161,10 @@ def _describe(credentials: Credentials) -> str:
         expiry = "expired"
     else:
         expiry = f"expires {credentials.expires_at.isoformat(timespec='minutes')}"
+    # A pasted token carries no scope to report; naming an empty one would
+    # read as a token that was granted nothing.
+    if not credentials.scope:
+        return f"connected — {expiry}"
     return f"connected — scope {credentials.scope}, {expiry}"
 
 

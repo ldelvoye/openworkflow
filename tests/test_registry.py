@@ -30,7 +30,7 @@ PROVIDER = ProviderConfig(
     scopes=("read",),
     client_name="smorg",
 )
-DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", provider=PROVIDER),)
+DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", method=PROVIDER),)
 
 
 def manifest(
@@ -108,18 +108,18 @@ def test_manifest_rejects_empty_connections():
 
 def test_manifest_rejects_duplicate_connection_ids():
     with pytest.raises(ValueError, match="duplicate connection path"):
-        manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),) * 2)
+        manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),) * 2)
 
 
 def test_connection_with_no_chosen_id_returns_the_first_declared_path():
-    mcp = ConnectionPath(id="mcp", provider=PROVIDER)
-    api_key = ConnectionPath(id="api-key", provider=PROVIDER)
+    mcp = ConnectionPath(id="mcp", method=PROVIDER)
+    api_key = ConnectionPath(id="api-key", method=PROVIDER)
     declared = manifest(connections=(mcp, api_key))
     assert declared.connection(None) is mcp
 
 
 def test_connection_with_an_unknown_id_names_the_declared_ones():
-    declared = manifest(connections=(ConnectionPath(id="mcp", provider=PROVIDER),))
+    declared = manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),))
     with pytest.raises(ValueError, match="mcp") as excinfo:
         declared.connection("nope")
     assert "nope" in str(excinfo.value)

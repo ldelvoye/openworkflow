@@ -16,11 +16,14 @@ Not published to PyPI yet. From a checkout:
 
     uv run smorg run
 
-Then press `^ + p` and pick "Add integration" to connect one.
+Then press `^ + p` and pick "Add integration" to connect one, then select the
+desired connection method.
+
 `smorg connect <integration>` does the same from the CLI, and is also how you
-re-authenticate a tab whose token has expired. `smorg logout <integration>`
-(or "Remove integration" from `^ + p`) removes a tab, its stored token, and
-its seen marks.
+re-authenticate a tab whose token has expired or been revoked
+
+`smorg logout <integration>` (or "Remove integration" from `^ + p`) removes a tab,
+its stored token, and its seen marks.
 
 Once released, `uvx smorg` will fetch and run it directly. That first run
 installs the package before the screen paints, so expect a brief blank terminal.
@@ -32,5 +35,8 @@ opens the menu (add/remove integrations, screenshots), `q` quits.
 
 ## Status
 
-Linear is the first dish. See [docs/ROADMAP.md](docs/ROADMAP.md) for what's
-ahead.
+Two dishes on the table:
+* **Linear**, showing the issues assigned to you
+* **GitHub**, showing what needs your attention
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for what's ahead.

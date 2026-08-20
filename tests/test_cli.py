@@ -49,8 +49,8 @@ def revocation(monkeypatch):
     return calls
 
 
-def test_linear_is_the_registered_integration():
-    assert known_integration_ids() == ("linear",)
+def test_the_allowlist_is_what_this_build_registers():
+    assert known_integration_ids() == ("github", "linear")
 
 
 def test_connect_rejects_an_unknown_integration(capsys):
@@ -153,3 +153,89 @@ def test_logout_when_already_disconnected_makes_no_revocation_call(revocation, c
     assert main(["logout", "linear"]) == 0
     assert revocation["revoked"] == 0
     assert "already disconnected" in capsys.readouterr().out
+
+
+# --- Connecting with a token the user pasted ---
+
+PASTED = "github_pat_11ABCDEFG0abcdefghijklmnop"
+
+
+class Pasting:
+    """Stands in for the person at the hidden prompt."""
+
+    def __init__(self, monkeypatch) -> None:
+        self._monkeypatch = monkeypatch
+        self.enter(PASTED)
+
+    def enter(self, entered: str) -> None:
+        def answer(prompt: str) -> str:
+            return entered
+
+        self._monkeypatch.setattr("smorg.cli.getpass", answer)
+
+
+@pytest.fixture
+def pasting(monkeypatch):
+    return Pasting(monkeypatch)
+
+
+def test_connect_stores_a_pasted_token_and_records_the_tab(pasting):
+    assert main(["connect", "github"]) == 0
+
+    stored = get_credentials("github")
+    assert stored is not None
+    assert stored.access_token == PASTED
+    assert load_config().tabs == (TabConfig(integration="github", connection="token"),)
+
+
+def test_connect_says_where_to_get_a_token_and_what_it_needs(pasting, capsys):
+    main(["connect", "github"])
+
+    out = capsys.readouterr().out
+    assert "github.com/settings/personal-access-tokens" in out
+    assert "Pull requests" in out
+
+
+def test_connect_never_echoes_a_pasted_token(pasting, capsys):
+    """getpass keeps it off the screen; nothing after may put it back."""
+    main(["connect", "github"])
+
+    captured = capsys.readouterr()
+    assert PASTED not in captured.out
+    assert PASTED not in captured.err
+
+
+def test_connect_refuses_an_unusable_token_and_stores_nothing(pasting, capsys):
+    pasting.enter("")
+
+    assert main(["connect", "github"]) == 1
+
+    assert get_credentials("github") is None
+    assert load_config().tabs == ()
+    assert "no token entered" in capsys.readouterr().err
+
+
+def test_connecting_again_replaces_the_token_without_a_second_tab(pasting):
+    """The whole re-authentication story for a token path: an expired tab says
+    to run this, and running it is what fixes the tab."""
+    main(["connect", "github"])
+    pasting.enter("github_pat_22replacementtoken")
+
+    assert main(["connect", "github"]) == 0
+
+    stored = get_credentials("github")
+    assert stored is not None
+    assert stored.access_token == "github_pat_22replacementtoken"
+    assert len(load_config().tabs) == 1
+
+
+def test_status_of_a_token_tab_names_no_scope(pasting, capsys):
+    """A pasted token was granted no scope through us; printing an empty one
+    would read as a token that can do nothing."""
+    main(["connect", "github"])
+    capsys.readouterr()
+
+    assert main(["status"]) == 0
+
+    out = capsys.readouterr().out
+    assert "github: connected — no expiry" in out

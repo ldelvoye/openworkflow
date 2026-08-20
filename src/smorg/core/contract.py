@@ -1,9 +1,4 @@
-"""What an integration must provide, and the errors it is allowed to raise.
-
-Provisional. This has exactly one consumer, and a contract shaped against a
-single implementation is reliably wrong for the second — so it carries nothing
-that the first integration does not need. Generalise when there are two.
-"""
+"""What an integration must provide, and the errors it is allowed to raise."""
 
 from __future__ import annotations
 
@@ -17,22 +12,19 @@ import httpx
 
 from smorg.auth.oauth import ProviderConfig
 from smorg.auth.store import Credentials
+from smorg.auth.token import TokenPrompt
 from smorg.core.keys import RESERVED_KEYS
 
 if TYPE_CHECKING:
-    # Deferred: shell.panel imports this module for Item, so a real import
-    # here would be circular; safe since the name is only used in a type
-    # position.
     from smorg.shell.panel import Panel
 
 
 class ActionClass(StrEnum):
-    """How far an action reaches, which is the whole safety boundary.
+    """How far an action reaches.
 
-    LOCAL touches only our own state, LAUNCH hands off to the browser or
-    clipboard, REMOTE writes to somebody's API. Only the first two are
-    implemented; REMOTE exists so adding one later is a declaration rather than
-    a retrofit.
+    LOCAL -> our own state
+    LAUNCH -> browser or clipboard
+    REMOTE -> API (not implemented yet)
     """
 
     LOCAL = "local"
@@ -52,14 +44,7 @@ class Action:
 
 @dataclass(frozen=True)
 class Item:
-    """The minimum the shell needs from any integration's data.
-
-    Change highlighting keys off updated_at and the launch action opens url, so
-    those two plus an identity are the whole shared vocabulary. Everything a
-    panel draws beyond this belongs to the integration that defined it — a
-    shared type carrying every field an integration might want would undo the
-    point of per-integration rendering.
-    """
+    """The minimum the shell needs from any integration's data."""
 
     id: str
     updated_at: datetime
@@ -68,12 +53,8 @@ class Item:
 
 @dataclass(frozen=True)
 class ConnectionPath:
-    """One way an integration can be reached — OAuth via ProviderConfig is
-    the only kind implemented. A manifest can declare several so the
-    management UI can name and offer each one."""
-
     id: str
-    provider: ProviderConfig
+    method: ProviderConfig | TokenPrompt
 
 
 def _duplicates(values: Sequence[str]) -> list[str]:
@@ -93,7 +74,7 @@ class Manifest:
         duplicates = _duplicates(keys)
         if duplicates:
             raise ValueError(f"duplicate action key(s) in {self.id}: {duplicates}")
-        reserved = sorted(set[str](keys) & RESERVED_KEYS)
+        reserved = sorted(set(keys) & RESERVED_KEYS)
         if reserved:
             raise ValueError(
                 f"{self.id} binds reserved shell key(s) {reserved}; "
@@ -124,6 +105,12 @@ class Manifest:
 
 class IntegrationError(Exception):
     """Base class for every failure a source may surface to the shell."""
+
+
+class AccessNotAllowed(IntegrationError):
+    """Credentials (usually from token-based auth) are not allowed access to the requested data.
+    Last-good data is kept and no re-connect is offered.
+    """
 
 
 class AuthExpired(IntegrationError):

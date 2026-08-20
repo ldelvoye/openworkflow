@@ -8,6 +8,8 @@ license = { text = "MIT" }
 dependencies = [
     "httpx>=0.28",
     "keyring>=25.0",
+    "pygithub>=2.5",
+    "requests>=2.32",
     "textual>=1.0",
     "tomli-w>=1.0",
 ]

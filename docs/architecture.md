@@ -48,6 +48,25 @@ subclasses; neither side imports the other — `core/registry.py` is the only
 place integration ids appear. Tests grep for violations ("sources never format,
 panels never fetch"), so a broken integration's blast radius is its own tab.
 
+## Two ways in, chosen per integration
+
+A connection path is either an OAuth provider to authorize against or a token
+the user creates in the service and pastes in, and a manifest declares which.
+Neither is the default: the path decides the whole connect flow, and nothing
+downstream re-derives which kind it is holding.
+
+**OAuth is worth it only where the service makes it cheap.** Linear's MCP
+endpoint registers a client on the fly, so connecting is one browser round trip
+and nothing to configure. GitHub publishes no metadata document and registers no
+clients, so an OAuth tab there would need an app somebody registered by hand and
+a client id configured before the first login — a setup step per user, to arrive
+where one pasted token already arrives.
+
+What a pasted token gives up is renewal: nothing here issued it, so nothing here
+can refresh it. A token that expires or is revoked surfaces as `AuthExpired` on
+the next fetch, and the tab says to connect again — the same path an
+unrefreshable OAuth token already takes, which is why it needed no new machinery.
+
 ## MCP is the auth layer, not a data contract
 
 MCP appears in this design for one reason: its servers ship OAuth 2.1 with PKCE
@@ -118,6 +137,10 @@ not stay bold forever.
 - **The OAuth callback binds an ephemeral port** — nothing can squat a port it
   can't predict — and the server-side registration keeps a stable loopback URI
   (RFC 8252 §7.3 lets servers ignore the port, verified live).
+- **A pasted token is never echoed.** It is entered through a masked field in
+  the app and through `getpass` on the CLI, and a rejected entry is reported
+  without repeating what was typed — an error message printed to a terminal is
+  exactly where a credential would otherwise end up in scrollback.
 - **Server text is sanitized at the source** (control characters stripped,
   length-capped with a visible marker) and rendered without markup
   interpretation, so a hostile issue title can't restyle the UI or emit

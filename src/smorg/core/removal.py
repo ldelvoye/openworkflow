@@ -68,8 +68,10 @@ def remove_integration(integration_id: str) -> RemovalResult:
             path = integration.manifest.connection(tab.connection)
         except ValueError:
             path = None  # a stale connection id must not block deletion
-        if path is not None:
-            revoked = revoke_best_effort(path.provider, tab.client_id, credentials)
+
+        # Only try to revoke OAuth tokens: a pasted token has no provider to ask
+        if path is not None and isinstance(path.method, oauth.ProviderConfig):
+            revoked = revoke_best_effort(path.method, tab.client_id, credentials)
 
     # Credentials before config: dropping the tab first could strand
     # credentials with nothing left pointing at them.

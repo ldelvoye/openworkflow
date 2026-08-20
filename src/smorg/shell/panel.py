@@ -151,9 +151,16 @@ class Panel(Vertical):
         detail.can_focus = False
         yield detail
 
-    def render_ready(self) -> Text:
-        """Overridden by an integration. The base draws identities only."""
-        return Text("\n".join(item.id for item in self.items))
+    def render_ready(self) -> RenderableType:
+        """The tab's body in the READY state, for an integration to override."""
+        return Text(self.ready_text())
+
+    def ready_text(self) -> str:
+        """Same view as `render_ready()` but flattened to plain text.
+
+        Override it alongside any `render_ready()` that returns is not a Text, such as a grid.
+        """
+        return "\n".join(item.id for item in self.items)
 
     @staticmethod
     def detail_key(item: Item) -> tuple[str, str]:
@@ -319,10 +326,8 @@ class Panel(Vertical):
             return f"could not load: {self.message}"
         if self.state is PanelState.STALE:
             stamp = self.as_of.strftime("%H:%M") if self.as_of else "earlier"
-            return (
-                f"showing data as of {stamp} — {self.message}\n{self.render_ready().plain.strip()}"
-            )
-        return self.render_ready().plain.strip()
+            return f"showing data as of {stamp} — {self.message}\n{self.ready_text()}"
+        return self.ready_text()
 
     def refresh(
         self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False

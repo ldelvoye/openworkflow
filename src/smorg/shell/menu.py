@@ -15,12 +15,18 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Vertical
-from textual.widgets import OptionList, Static
+from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from smorg.auth.login import LoginCancelled, perform_login
-from smorg.auth.oauth import OAuthError, extra_scopes_warning
+from smorg.auth.oauth import OAuthError, ProviderConfig, extra_scopes_warning
 from smorg.auth.store import Credentials, CredentialStoreError, set_credentials
+from smorg.auth.token import (
+    InvalidToken,
+    TokenPrompt,
+    accepted_token,
+    credentials_from_token,
+)
 from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from smorg.core.contract import ConnectionPath
 from smorg.core.registry import UnknownIntegration, get_integration, manifests
@@ -251,11 +257,66 @@ class AddIntegrationList(ManagementScreen):
             self.app.push_screen(AddConnectionList(chosen))
 
 
+async def open_tab_for(
+    screen: ManagementScreen,
+    display_name: str,
+    tab_config: TabConfig,
+    credentials: Credentials,
+    on_store_failure: Callable[[], None] | None = None,
+    warning: str | None = None,
+) -> None:
+    """Store credentials, record the tab, and mount it live — the finishing
+    half every connect flow shares, whichever way the credentials arrived.
+
+    Credentials are written before the config entry: a recorded tab whose token
+    never made it is a broken tab, where a stored token with no tab is an
+    orphan `smorg logout` can still clear. `on_store_failure` is how a flow
+    that could hand a live token back does so before giving up.
+    """
+    try:
+        set_credentials(tab_config.integration, credentials)
+    except CredentialStoreError as error:
+        if on_store_failure is not None:
+            on_store_failure()
+        screen.dismiss()
+        screen.app.notify(str(error), severity="error")
+        return
+
+    try:
+        save_config(add_tab(load_config(), tab_config))
+    except ConfigError as error:
+        # Credentials stay stored — same gap cli._connect has; no invented
+        # recovery here either.
+        screen.dismiss()
+        screen.app.notify(str(error), severity="error")
+        return
+
+    if warning is not None:
+        screen.app.notify(warning, severity="warning")
+
+    # Lazy import: at module scope this would cycle with app.py.
+    from smorg.shell.app import SmorgApp
+
+    app = screen.app
+    assert isinstance(app, SmorgApp)
+    await app.add_tab_live(tab_config)
+    screen.dismiss()
+    app.notify(f"connected {display_name}")
+
+
+def connect_screen_for(integration: AddableIntegration, path: ConnectionPath) -> ManagementScreen:
+    """Which connect flow a chosen path leads to: the browser wait, or one
+    field of input. The path decides, and this is the only place that asks."""
+    if isinstance(path.method, TokenPrompt):
+        return TokenModal(integration.integration_id, integration.display_name, path)
+    return ConnectModal(integration.integration_id, integration.display_name, path)
+
+
 class AddConnectionList(ManagementScreen):
     """One row per the chosen integration's declared connection paths, even
     when there is only one — the flow's shape stays the same regardless of
     how many paths an integration declares. Escape cancels; selecting
-    dismisses and pushes ConnectModal."""
+    dismisses and pushes whichever connect screen the path calls for."""
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
@@ -277,9 +338,73 @@ class AddConnectionList(ManagementScreen):
         chosen = _selected(self.integration.connections, event.option_id, lambda path: path.id)
         self.dismiss()
         if chosen is not None:
-            self.app.push_screen(
-                ConnectModal(self.integration.integration_id, self.integration.display_name, chosen)
-            )
+            self.app.push_screen(connect_screen_for(self.integration, chosen))
+
+
+class TokenModal(ManagementScreen):
+    """Ask for a token the user created in the service themselves, and store it.
+
+    No worker and no cancellation window, unlike ConnectModal: nothing here
+    waits on a network, so the only two outcomes are submitted and escaped.
+    """
+
+    DEFAULT_CSS = """
+    TokenModal > .box { width: 64; }
+    TokenModal Input { width: 1fr; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
+
+    def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
+        super().__init__()
+        prompt = path.method
+        assert isinstance(prompt, TokenPrompt), "TokenModal is only reached for a token path"
+        self.integration_id = integration_id
+        self.display_name = display_name
+        self.path = path
+        self.prompt = prompt
+
+    def compose(self) -> ComposeResult:
+        # password: the token is a live credential, and a terminal's scrollback
+        # outlives this screen.
+        entry = Input(password=True, placeholder=self.prompt.label, id="token")
+        box = Vertical(
+            Static(self.body_text(), markup=False, id="body"),
+            entry,
+            classes="box",
+        )
+        box.border_title = "add integration"
+        yield box
+
+    def on_mount(self) -> None:
+        self.query_one("#token", Input).focus()
+
+    def body_text(self) -> str:
+        """Public, like Panel.body_text(), so tests can assert on content directly."""
+        return "\n\n".join(
+            [
+                f"{self.display_name} connects with a token you create yourself.",
+                f"create one at: {self.prompt.help_url}",
+                f"it needs: {self.prompt.scopes_hint}",
+                "enter connect   esc cancel",
+            ]
+        )
+
+    def action_cancel(self) -> None:
+        self.dismiss()
+
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        try:
+            token = accepted_token(event.value)
+        except InvalidToken as error:
+            # Stays open with the field cleared: the fix is another paste, and
+            # dismissing would cost the user the whole menu to get back here.
+            event.input.value = ""
+            self.app.notify(str(error), severity="error")
+            return
+        tab_config = TabConfig(integration=self.integration_id, connection=self.path.id)
+        await open_tab_for(self, self.display_name, tab_config, credentials_from_token(token))
 
 
 class ConnectModal(ManagementScreen):
@@ -295,9 +420,14 @@ class ConnectModal(ManagementScreen):
 
     def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
         super().__init__()
+        provider = path.method
+        assert isinstance(provider, ProviderConfig), (
+            "ConnectModal is only reached for an OAuth path"
+        )
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path
+        self.provider = provider
         self._url: str | None = None
         self._cancellable = True
         self._cancelled_event = threading.Event()
@@ -332,7 +462,7 @@ class ConnectModal(ManagementScreen):
             with httpx.Client(timeout=30) as client:
                 client_id, credentials = perform_login(
                     client,
-                    self.path.provider,
+                    self.provider,
                     None,
                     on_authorize_url=lambda url: self.app.call_from_thread(self._show_url, url),
                     cancelled=self._cancelled_event,
@@ -360,42 +490,26 @@ class ConnectModal(ManagementScreen):
 
     async def _on_succeeded(self, client_id: str, credentials: Credentials) -> None:
         self._cancellable = False
-        try:
-            set_credentials(self.integration_id, credentials)
-        except CredentialStoreError as error:
-            # The token is live and about to become unreachable — hand it
-            # back before giving up, same constraint as cli._connect.
-            revoke_best_effort(self.path.provider, client_id, credentials)
-            self.dismiss()
-            self.app.notify(str(error), severity="error")
-            return
+
+        def hand_the_token_back() -> None:
+            # The token is live and about to become unreachable — nothing will
+            # hold it, so nothing could revoke it later.
+            revoke_best_effort(self.provider, client_id, credentials)
 
         tab_config = TabConfig(
             integration=self.integration_id, client_id=client_id, connection=self.path.id
         )
-        try:
-            save_config(add_tab(load_config(), tab_config))
-        except ConfigError as error:
-            # Credentials stay stored — same gap cli._connect has; no invented
-            # recovery here either.
-            self.dismiss()
-            self.app.notify(str(error), severity="error")
-            return
-
         warning = extra_scopes_warning(
-            self.integration_id, self.display_name, self.path.provider, credentials
+            self.integration_id, self.display_name, self.provider, credentials
         )
-        if warning is not None:
-            self.app.notify(warning, severity="warning")
-
-        # Lazy import: at module scope this would cycle with app.py.
-        from smorg.shell.app import SmorgApp
-
-        app = self.app
-        assert isinstance(app, SmorgApp)
-        await app.add_tab_live(tab_config)
-        self.dismiss()
-        app.notify(f"connected {self.display_name}")
+        await open_tab_for(
+            self,
+            self.display_name,
+            tab_config,
+            credentials,
+            on_store_failure=hand_the_token_back,
+            warning=warning,
+        )
 
 
 class MenuCommands(Provider):

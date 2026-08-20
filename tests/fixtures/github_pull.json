@@ -1,0 +1,30 @@
+{
+  "id": 2001,
+  "number": 42,
+  "title": "Tidy the loader",
+  "html_url": "https://github.com/octocat/hello/pull/42",
+  "state": "open",
+  "draft": false,
+  "locked": false,
+  "merged": false,
+  "mergeable": true,
+  "mergeable_state": "clean",
+  "body": "Splits the loader in two.\n\n- one\n- two",
+  "created_at": "2026-08-12T09:00:00Z",
+  "updated_at": "2026-08-13T12:00:00Z",
+  "user": {
+    "login": "octocat",
+    "id": 1,
+    "type": "User"
+  },
+  "base": {
+    "ref": "main",
+    "label": "octocat:main",
+    "sha": "1111111111111111111111111111111111111111"
+  },
+  "head": {
+    "ref": "tidy-loader",
+    "label": "octocat:tidy-loader",
+    "sha": "2222222222222222222222222222222222222222"
+  }
+}
