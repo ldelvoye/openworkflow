@@ -16,6 +16,7 @@ from textual.command import CommandPalette
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
+from smorg import __version__
 from smorg.auth.refresh import credentials_for
 from smorg.auth.store import CredentialStoreError, now
 from smorg.core.config import TabConfig, resolve_connection
@@ -30,6 +31,7 @@ from smorg.core.contract import (
 from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
+from smorg.core.update import get_latest_version, is_newer
 from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display, symbolize_key_display
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
@@ -145,6 +147,7 @@ class SmorgApp(App[None]):
         self.seen = SeenState({})
         self._fetched_at: dict[str, datetime] = {}
         self._palette = palette
+        self.available_update: str | None = None
 
     @property
     def active_tab(self) -> str | None:
@@ -203,6 +206,10 @@ class SmorgApp(App[None]):
         self.seen = SeenState.load()
         for panel in self.query(Panel):
             panel.seen = self.seen
+        # Headless is how Textual's test harness (run_test()) runs every app; skipping the check
+        # there keeps the whole test suite from reaching the real PyPI API.
+        if not self.is_headless:
+            self._check_for_update()
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         """Fetch the newly active tab and focus its panel. Doubles as the focus handoff
@@ -366,6 +373,21 @@ class SmorgApp(App[None]):
         panel = self._panel_of(self.active_tab)
         if panel is not None:
             panel.mark_unseen()
+
+    @work(thread=True)
+    def _check_for_update(self) -> None:
+        """Check PyPI for a newer smorg release, off the UI thread."""
+        try:
+            with httpx.Client(timeout=5) as http:
+                latest = get_latest_version(http)
+            if is_newer(latest, __version__):
+                self.call_from_thread(self._announce_update, latest)
+        except Exception:
+            pass
+
+    def _announce_update(self, latest: str) -> None:
+        self.available_update = latest
+        self.notify(f"smorg {latest} is available — press ^+p to upgrade")
 
     def on_panel_detail_requested(self, message: Panel.DetailRequested) -> None:
         # Only the focused panel of the visible tab can post this, so the active tab names the

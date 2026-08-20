@@ -5,13 +5,14 @@ to, and the base every management screen shares.
 
 from __future__ import annotations
 
+import subprocess
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import httpx
 from textual import work
-from textual.app import ComposeResult
+from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Vertical
@@ -31,6 +32,8 @@ from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save
 from smorg.core.contract import ConnectionPath
 from smorg.core.registry import UnknownIntegration, get_integration, manifests
 from smorg.core.removal import RemovalResult, remove_integration, revoke_best_effort
+from smorg.core.text import sanitize_line, truncate
+from smorg.core.update import upgrade_command
 from smorg.shell.modal import ModalBox
 
 REMOVE_COMMAND = "Remove integration"
@@ -494,6 +497,39 @@ class ConnectModal(ManagementScreen):
         )
 
 
+def _upgrade_label(version: str) -> str:
+    return f"Upgrade smorg to {version}"
+
+
+def _upgrade_failure_toast(command: str, stderr: str) -> str:
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    if lines:
+        tail = lines[-1]
+    else:
+        tail = ""
+    safe_tail = sanitize_line(truncate(tail, 80))
+    return f"{command} failed: {safe_tail}"
+
+
+def _run_upgrade(app: App[object], command: str, version: str) -> None:
+    """Run the upgrade command off the UI thread, then toast the outcome. Runs on a worker
+    thread; every app touch goes through call_from_thread.
+    """
+    try:
+        result = subprocess.run(command.split(), capture_output=True, text=True)
+    except OSError as error:
+        app.call_from_thread(
+            app.notify, _upgrade_failure_toast(command, str(error)), severity="error"
+        )
+        return
+    if result.returncode == 0:
+        app.call_from_thread(app.notify, f"upgraded — restart smorg to use {version}")
+    else:
+        app.call_from_thread(
+            app.notify, _upgrade_failure_toast(command, result.stderr), severity="error"
+        )
+
+
 class MenuCommands(Provider):
     """Top-level management commands for the menu."""
 
@@ -502,6 +538,9 @@ class MenuCommands(Provider):
             yield DiscoveryHit(REMOVE_COMMAND, self._open_remove_list)
         if addable_integrations():
             yield DiscoveryHit(ADD_COMMAND, self._open_add_list)
+        available_update = self._available_update()
+        if available_update is not None:
+            yield DiscoveryHit(_upgrade_label(available_update), self._upgrade)
 
     async def search(self, query: str) -> Hits:
         matcher = self.matcher(query)
@@ -513,9 +552,42 @@ class MenuCommands(Provider):
             score = matcher.match(ADD_COMMAND)
             if score > 0:
                 yield Hit(score, matcher.highlight(ADD_COMMAND), self._open_add_list)
+        available_update = self._available_update()
+        if available_update is not None:
+            label = _upgrade_label(available_update)
+            score = matcher.match(label)
+            if score > 0:
+                yield Hit(score, matcher.highlight(label), self._upgrade)
 
     def _open_remove_list(self) -> None:
         self.app.push_screen(RemoveIntegrationList())
 
     def _open_add_list(self) -> None:
         self.app.push_screen(AddIntegrationList())
+
+    def _available_update(self) -> str | None:
+        # Lazy import: at module scope this would cycle with app.py.
+        from smorg.shell.app import SmorgApp
+
+        app = self.app
+        if not isinstance(app, SmorgApp):
+            return None
+        return app.available_update
+
+    def _upgrade(self) -> None:
+        # Lazy import: at module scope this would cycle with app.py.
+        from smorg.shell.app import SmorgApp
+
+        app = self.app
+        assert isinstance(app, SmorgApp)
+        version = app.available_update
+        assert version is not None, "_upgrade is only offered when available_update is set"
+
+        command = upgrade_command()
+        if command is None:
+            app.notify(
+                "smorg can't tell how it was installed — "
+                f"upgrade to {version} with your own package manager"
+            )
+            return
+        app.run_worker(lambda: _run_upgrade(app, command, version), thread=True)
