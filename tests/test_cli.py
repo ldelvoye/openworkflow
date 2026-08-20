@@ -156,6 +156,35 @@ def test_logout_when_already_disconnected_makes_no_revocation_call(revocation, c
     assert "already disconnected" in capsys.readouterr().out
 
 
+# --- Opening the dashboard ---
+
+
+def test_no_command_opens_the_dashboard(monkeypatch):
+    calls = {"run": 0}
+
+    def fake_run():
+        calls["run"] += 1
+        return 0
+
+    monkeypatch.setattr("smorg.cli._run", fake_run)
+
+    assert main([]) == 0
+    assert calls["run"] == 1
+
+
+def test_run_command_opens_the_dashboard(monkeypatch):
+    calls = {"run": 0}
+
+    def fake_run():
+        calls["run"] += 1
+        return 0
+
+    monkeypatch.setattr("smorg.cli._run", fake_run)
+
+    assert main(["run"]) == 0
+    assert calls["run"] == 1
+
+
 # --- Connecting with a token the user pasted ---
 
 PASTED = "github_pat_11ABCDEFG0abcdefghijklmnop"

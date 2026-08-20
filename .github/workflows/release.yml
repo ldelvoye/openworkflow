@@ -1,0 +1,46 @@
+name: release
+on:
+  release:
+    types: [published]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # --frozen so CI resolves exactly what uv.lock pins; without it the
+      # lockfile is committed but never actually exercised.
+      - run: uv sync --all-extras --dev --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run pytest -v
+
+  publish:
+    needs: gates
+    runs-on: ubuntu-latest
+    environment: pypi
+    # A job-level permissions block zeroes the defaults, so contents: read must
+    # be spelled out for checkout; id-token: write is what OIDC trusted
+    # publishing needs.
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      # Belt-and-braces: fail before building if the release tag and
+      # pyproject.toml's version have drifted apart.
+      - run: |
+          tag="v$(uv version --short)"
+          if [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match pyproject.toml version $tag"
+            exit 1
+          fi
+      - run: uv build
+      - run: uv publish
