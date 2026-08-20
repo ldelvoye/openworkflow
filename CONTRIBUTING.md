@@ -17,9 +17,7 @@ uv run pyright
 
 ## What the barebones integration looks like
 
-An integration is one directory and one registry line. Read
-[docs/architecture.md](docs/architecture.md) first — it explains *why* the
-boundaries below exist.
+An integration is one directory and one registry line. Read [docs/architecture.md](docs/architecture.md) first — it explains *why* the boundaries below exist.
 
 ```
 src/smorg/integrations/<id>/
@@ -34,122 +32,57 @@ not registered fails with "not supported" rather than half-working.
 
 ### What you own
 
-- **`manifest.py`** — id, display name, declared connection paths (each a
-  `ConnectionPath` naming either a `ProviderConfig` to run OAuth against or a
-  `TokenPrompt` asking for a token the user pastes in), `stale_after`, declared
-  actions (each tagged `local` / `launch`; `remote` is not implemented), and
-  your panel class.
-- **`source.py`** — `fetch(credentials, http)` returning your `Item` subclass,
-  and `fetch_detail` if your panel shows details. Pagination, filtering, and
-  any service quirks are yours on purpose: measured across real MCP servers,
-  none of it generalizes (see architecture.md). Sanitize server text with
-  `sanitize_block`, then service-specific normalization, then `truncate` — in
-  that order.
-- **`panel.py`** — extend `Panel`, override its render hooks, and decide your
-  policy: grouping, glyphs, ordering, and _when an interaction marks an item
-  seen_ (an opt-in capability — see "What the core provides"). `render_ready()`
-  returns any renderable, so a tab is not obliged to be one list — GitHub's is
-  two columns. Override `ready_text()` beside it whenever `render_ready()` is
-  not a `Text`; that is what the stale banner sits above and what your tests
-  read.
+- **`manifest.py`** — id, display name, declared connection paths, `stale_after`, declared actions, and your panel class.
+- **`source.py`** — `fetch(credentials, http)` returning your `Item` subclass, and `fetch_detail` if your panel shows details.
+- **`panel.py`** — extend `Panel` and override its render hooks. `render_ready()` returns any renderable.
 
 ## What the core provides
 
 **Runs for you, no code on your side:**
 
-- Credential storage and, for an OAuth path, the browser login and refresh —
-  all through your declared connection paths. Declaring a `TokenPrompt`
-  instead gets you the masked in-app field, the `getpass` prompt on the CLI,
-  and the same storage; there is nothing to refresh, so a token that stops
-  working reaches you as `AuthExpired` and the tab says to connect again.
-  `fetch` receives credentials per call; you never touch or persist a token
-  yourself.
+- Credential storage:
+  * For OAuth, the browser login and refresh.
+  * For token, masked in-app field.
 - Refresh scheduling that follows attention, not a clock.
-- Per-tab failure isolation driven by the `IntegrationError` taxonomy
-  (`AuthExpired` / `AccessNotAllowed` / `Unavailable` / `Malformed`).
-- Seen-state loading and injection, so `mark_seen` below always has a live
-  store to write into.
+- Per-tab failure isolation driven by `IntegrationError`
+- Seen-state loading and injection, so `mark_seen` below always has a live store to write into.
 
 **Building blocks you call:**
 
-- `McpSession` (`core/mcp.py`) — MCP calls with handshake caching and
-  retry-once.
-- `required_string` / `optional_string` / `timestamp` (`core/shape.py`) —
-  untrusted-shape guards that raise `Malformed`.
-- `sanitize_line` / `sanitize_block` / `truncate` (`core/text.py`) — sanitizing server text.
-- `Panel` and its render hooks (`shell/panel.py`) — the five states, the
-  detail region, `mark_seen()` / `mark_all_seen()`.
-- the theme-safe `Markdown` widget (`shell/markdown.py`) — clickable links,
-  local-path underlining.
+- For MCP connection: `McpSession` (`core/mcp.py`).
+- `required_string` / `optional_string` / `timestamp` (`core/shape.py`): untrusted-shape guards that raise `Malformed`.
+- `sanitize_line` / `sanitize_block` / `truncate` (`core/text.py`): sanitizing server text.
+- `Panel` and its render hooks (`shell/panel.py`).
+- `Markdown` (`shell/markdown.py`): theme safe widget with clickable links and local-path underlining.
 - `age()` (`shell/format.py`).
 
 **Optional capabilities you opt into:**
 
-- Change marks — call `self.mark_seen(item)` when an interaction should
-  count as "seen"; skip it and the feature simply doesn't exist for your tab.
-- The detail pane — implement `fetch_detail` (its own `SupportsDetail` protocol, feature-detected
-  by the shell); the shell fetches and caches it for you off the UI thread, so your panel never
-  touches the network. An integration without a detail pane simply doesn't define it.
-- Declared `Action`s — validated against reserved and duplicate keys at
-  construction and surfaced in the `?` help listing; the key itself is still
-  yours to bind, in `panel.py`'s own `BINDINGS`.
+- `self.mark_seen(item)`: when an interaction should count as "seen".
+- `fetch_detail` (`SupportsDetail` protocol that's feature-detected by the shell): the details pane fetched and cached by the shell. Your panel never touches the network.
+- `Action`s: validated against reserved and duplicated keybinds at construction, can be found in the `?` help listing. Action keys should still be bound in `panel.py` as `BINDINGS`.
 
 ## What development support you have
 
-**Screenshots.** A reviewer won't have every integration's service account —
-nobody expects them to sign up for Azure just to review a contributed Azure
-tab. Press `^ + p` and run **Screenshot** to export the current screen as an
-SVG to your Downloads folder, rendered with your terminal's real colors
-instead of a generic fallback, and lifted to a 4.5:1 readability floor so no
-text exports fainter than it draws (`export_screenshot` is overridden in
-`shell/app.py` to use the palette this app learns from the terminal at
-startup — see `shell/terminal_palette.py`). Attach one to your PR for any UI
-change; it's how a reviewer judges the look of a tab they can't connect
-themselves.
+**Screenshots.** using `^ + p` in the app. Please attach screenshots when making UI changes for review purposes.
 
-**Sandboxed local runs.** Point `SMORG_CONFIG_DIR` at a scratch directory and
-set `SMORG_CREDENTIAL_STORE=file` to run against disk instead of the OS
-keychain — the same seams the test suite uses. Tests themselves run with no
-network access: sources are tested against recorded payloads, panels against
-constructed items.
+**Sandboxed local runs** by pointing `SMORG_CONFIG_DIR` at a scratch directory and setting `SMORG_CREDENTIAL_STORE=file` to run against it instead of the OS Keychain.
 
 ## What is expected: code quality, comment quality, test quality
 
-- Name intermediates: no resolving and destructuring a value in the same
-  expression. More lines beat a dense one-liner.
-- No `x or y` or a ternary fused into a call as a value-selection argument —
-  assign the chosen value to a named variable with an explicit if/else first.
-- Comments and docstrings state the end result, ideally with an input→output
-  example. If a comment is needed to explain the mechanism, clarify the code
-  instead, then trim the comment. A constraint the code can't show (call
-  ordering, a protocol quirk) earns one line.
-- Commits: `type(scope): summary`, lowercase, imperative. Bodies only when the
-  diff can't say it.
+I don't mind slop code (a lot of the core and auth were made with AI). But enforce the following:
+- Use intermediate variables: no resolving and destructuring a value in the same expression (including function calls). More lines is often better than denser statements.
+- Use explicit `if/else` to assign variables. Ternaries look ugly in Python and can get really messy.
+- Keep comments and docstrings short. Code should be self-explanatory, not everything needs comments (especially in integrations) Ideal docstrings state the end result.
 
-A test here asserts a decision of this codebase — a contract, an enforced
-seam, a security property, a policy — never a library's own behavior, and
-never coverage for its own sake. New work adds tests only where it adds
-decisions; a diff that grows tests without new decisions should cut them
-instead. Two shapes look thin but earn their place: a positive-case control
-that keeps a rejection test honest, and the same security property
-re-asserted at each call site, since call sites regress independently.
+Current state of the test suite might not be ideal. In general though, avoid writing sloppified test cases. Prioritize testing critical paths, and add test cases when fixing issues.
 
 ### Rules the test suite enforces
 
-- **Sources never format; panels never fetch.** The Linear panel carries a
-  grep-based test enforcing this (`test_the_panel_never_fetches`); copy it for
-  your integration.
-- **Errors cross the seam only as `IntegrationError`** — pick `AuthExpired`
-  / `AccessNotAllowed` / `Unavailable` / `Malformed` by what would fix the
-  failure; the semantics live in [docs/architecture.md](docs/architecture.md).
-- **Response shape is untrusted.** A server field that should be an object may
-  be a string; that must surface as `Malformed`, never a traceback.
-- **Reserved keys can't be bound.** The shell owns its keymap
-  (`core/keys.py: RESERVED_KEYS`); a manifest binding one is rejected at
-  construction.
-- **No tokens in output.** Error messages carry no credential material —
-  including a token a user typed and got wrong; server-controlled text is
-  sanitized before it can reach a terminal.
+- Sources never format; panels never fetch.
+- Errors cross the seam only as `IntegrationError`
+- Reserved keys can't be bound.
+- No tokens in output.
 
 ## Releasing
 
