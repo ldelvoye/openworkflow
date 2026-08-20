@@ -1,4 +1,4 @@
-# MCP protocol version
+# MCP protocol version (Written by John Clanker)
 
 `smorg` talks to some services over the Model Context Protocol. MCP is used for
 **authentication and transport**, never as a stable data contract — response
