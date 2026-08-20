@@ -9,7 +9,7 @@ from getpass import getpass
 
 import httpx
 
-from smorg import __version__
+from smorg import __version__, is_dev_build
 from smorg.auth import oauth
 from smorg.auth.login import LOGIN_TIMEOUT_SECONDS, perform_login
 from smorg.auth.oauth import extra_scopes_warning
@@ -256,8 +256,13 @@ def _run() -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if is_dev_build():
+        version_string = f"smorg {__version__} (dev)"
+    else:
+        version_string = f"smorg {__version__}"
+
     parser = argparse.ArgumentParser(prog="smorg")
-    parser.add_argument("--version", action="version", version=f"smorg {__version__}")
+    parser.add_argument("--version", action="version", version=version_string)
     subparsers = parser.add_subparsers(dest="command")
 
     connect = subparsers.add_parser("connect", help="authenticate an integration")

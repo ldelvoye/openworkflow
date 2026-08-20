@@ -50,6 +50,32 @@ def revocation(monkeypatch):
     return calls
 
 
+# --- --version ---
+
+
+def test_version_flag_exits():
+    with pytest.raises(SystemExit):
+        main(["--version"])
+
+
+def test_version_flag_says_dev_on_a_dev_build(monkeypatch, capsys):
+    monkeypatch.setattr("smorg.cli.is_dev_build", lambda: True)
+
+    with pytest.raises(SystemExit):
+        main(["--version"])
+
+    assert capsys.readouterr().out.strip().endswith("(dev)")
+
+
+def test_version_flag_omits_dev_on_a_release_build(monkeypatch, capsys):
+    monkeypatch.setattr("smorg.cli.is_dev_build", lambda: False)
+
+    with pytest.raises(SystemExit):
+        main(["--version"])
+
+    assert not capsys.readouterr().out.strip().endswith("(dev)")
+
+
 def test_the_allowlist_is_what_this_build_registers():
     assert known_integration_ids() == ("github", "linear")
 
