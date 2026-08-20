@@ -21,7 +21,7 @@ from github.Requester import (
 )
 
 from smorg.auth.store import Credentials
-from smorg.core.contract import AuthExpired, Malformed, Unavailable
+from smorg.core.contract import AccessNotAllowed, AuthExpired, Malformed, Unavailable
 from smorg.integrations.github.source import (
     BASE_QUERY,
     MAX_PER_QUERY,
@@ -307,15 +307,30 @@ def test_a_rejected_token_is_auth_expired(github):
         fetch(CREDENTIALS, UNUSED_HTTP)
 
 
-def test_a_token_missing_a_scope_is_auth_expired_too(github):
-    """A 403 here is a scope or an SSO policy, not a blip: retrying returns the
-    same refusal, and re-connecting is the only thing that helps."""
+def test_a_token_missing_a_scope_is_access_not_allowed(github):
+    """A 403 is a scope or an SSO policy, not a blip: the token authenticated,
+    so replacing it is not the fix and the tab must not say it expired."""
     github.failing_every_search(
         403, {"message": "Resource not accessible by personal access token"}
     )
 
-    with pytest.raises(AuthExpired):
+    with pytest.raises(AccessNotAllowed):
         fetch(CREDENTIALS, UNUSED_HTTP)
+
+
+def test_an_sso_blocked_token_does_not_read_as_expired(github):
+    """A token an organization's SSO refuses works everywhere else, so
+    "expired or revoked" would send the reader to replace a token that is fine."""
+    github.failing_every_search(
+        403, {"message": "Resource protected by organization SAML enforcement"}
+    )
+
+    with pytest.raises(AccessNotAllowed) as raised:
+        fetch(CREDENTIALS, UNUSED_HTTP)
+
+    message = str(raised.value)
+    assert "organization" in message
+    assert "expired" not in message
 
 
 def test_a_refused_query_is_malformed(github):

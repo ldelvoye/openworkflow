@@ -26,13 +26,15 @@ from github.PullRequest import PullRequest as GithubPullRequest
 from github.PullRequestReview import PullRequestReview
 
 from smorg.auth.store import Credentials
-from smorg.core.contract import AuthExpired, IntegrationError, Item, Malformed, Unavailable
+from smorg.core.contract import (
+    AccessNotAllowed,
+    AuthExpired,
+    IntegrationError,
+    Item,
+    Malformed,
+    Unavailable,
+)
 from smorg.core.text import capped, printable, printable_block
-
-REQUEST_TIMEOUT_SECONDS = 30
-RESULTS_PER_PAGE = 50
-MAX_PER_QUERY = 50
-MAX_RETRIES = 2
 
 
 class Category(StrEnum):
@@ -44,6 +46,37 @@ class Category(StrEnum):
     WAITING = "waiting review or actions"
     NEEDS_ACTION = "needs actions"
     READY_TO_MERGE = "ready to merge"
+
+
+REQUEST_TIMEOUT_SECONDS = 30
+RESULTS_PER_PAGE = 50
+MAX_PER_QUERY = 50
+MAX_RETRIES = 2
+
+REVIEW_LIMIT = 5
+REVIEWS_FETCH_LIMIT = 25
+BODY_LIMIT = 50_000
+
+BASE_QUERY = "is:pr is:open archived:false"
+
+# First match wins: the broad queries sit last so each takes only what the ones
+# above left, which is how "your team's review" and "waiting" are computed.
+QUERIES: tuple[tuple[Category, str], ...] = (
+    (Category.NEEDS_YOUR_REVIEW, "user-review-requested:@me"),
+    (Category.NEEDS_TEAM_REVIEW, "review-requested:@me"),
+    (Category.DRAFT, "author:@me draft:true"),
+    (Category.NEEDS_ACTION, "author:@me draft:false review:changes_requested"),
+    (Category.NEEDS_ACTION, "author:@me draft:false status:failure"),
+    (Category.READY_TO_MERGE, "author:@me draft:false review:approved status:success"),
+    (Category.WAITING, "author:@me draft:false"),
+)
+
+# How GitHub names an organization that requires SSO, in the body of its 403.
+SAML_ENFORCEMENT = "saml enforcement"
+
+# Where a review that was never submitted sorts. Timezone-aware to match
+# GitHub's own stamps: sorting an aware and a naive datetime together raises.
+NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
 
 
 @dataclass(frozen=True)
@@ -73,24 +106,6 @@ class PullRequestDetail:
     hidden_is_lower_bound: bool = False
 
 
-REVIEW_LIMIT = 5
-REVIEWS_FETCH_LIMIT = 25
-BODY_LIMIT = 50_000
-BASE_QUERY = "is:pr is:open archived:false"
-
-# First match wins: the broad queries sit last so each takes only what the ones
-# above left, which is how "your team's review" and "waiting" are computed.
-QUERIES: tuple[tuple[Category, str], ...] = (
-    (Category.NEEDS_YOUR_REVIEW, "user-review-requested:@me"),
-    (Category.NEEDS_TEAM_REVIEW, "review-requested:@me"),
-    (Category.DRAFT, "author:@me draft:true"),
-    (Category.NEEDS_ACTION, "author:@me draft:false review:changes_requested"),
-    (Category.NEEDS_ACTION, "author:@me draft:false status:failure"),
-    (Category.READY_TO_MERGE, "author:@me draft:false review:approved status:success"),
-    (Category.WAITING, "author:@me draft:false"),
-)
-
-
 def _message_of(error: GithubException) -> str:
     """The server's own explanation, when it sent a readable one."""
     data = error.data
@@ -101,10 +116,15 @@ def _message_of(error: GithubException) -> str:
 
 
 def _translated(error: GithubException) -> IntegrationError:
-    """One of the three IntegrationErrors, picked by whether retrying would help."""
-    if error.status in (401, 403):
-        # 403 is a token missing a scope or blocked by an organisation's SSO policy.
+    """Translate `GithubException` to `IntegrationError`"""
+    if error.status == 401:
         return AuthExpired("GitHub rejected the stored token; it may have expired or been revoked")
+    if error.status == 403:
+        if SAML_ENFORCEMENT in _message_of(error).casefold():
+            return AccessNotAllowed("the token is not authorized for this organization's SSO")
+        return AccessNotAllowed(
+            "the token cannot reach this repository; check its organization access and scopes"
+        )
     if error.status == 422:
         # GitHub refused a query this app wrote.
         return Malformed(f"GitHub refused the search: {printable(_message_of(error))}")
@@ -265,11 +285,6 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
             hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
             hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
         )
-
-
-# Where a review that was never submitted sorts. Timezone-aware to match
-# GitHub's own stamps: sorting an aware and a naive datetime together raises.
-NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
 
 
 def _submitted_order(review: Review) -> datetime:

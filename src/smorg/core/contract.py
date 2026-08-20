@@ -107,6 +107,12 @@ class IntegrationError(Exception):
     """Base class for every failure a source may surface to the shell."""
 
 
+class AccessNotAllowed(IntegrationError):
+    """Credentials (usually from token-based auth) is not allowed access to the requested data.
+    Last-good data is kept and no re-connect is offered.
+    """
+
+
 class AuthExpired(IntegrationError):
     """Credentials are no longer valid. The shell offers an inline re-connect."""
 

@@ -61,7 +61,7 @@ def _format_review_label(state: str) -> str:
 
 def _format_hidden_reviews_line(hidden: int, lower_bound: bool) -> Text:
     """(1, False) -> "… 1 earlier review"
-    
+
     (1, True) -> "… 1+ earlier reviews"
     """
     noun = "review" if hidden == 1 and not lower_bound else "reviews"
