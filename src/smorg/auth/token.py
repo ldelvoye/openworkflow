@@ -28,16 +28,13 @@ __all__ = [
 class TokenPrompt:
     """What to tell someone who has to go and create a token themselves.
 
-    A connection path declaring one of these is asking for a single field of
-    input; these three strings are what the CLI prints and what the in-app
-    modal shows above it.
+    label -> Github personal access token
+    help_url -> https://github.com/settings/tokens/new
+    scopes_hint -> read:user, read:org
     """
 
-    # Names the field, e.g. "GitHub personal access token".
     label: str
-    # Where to create one.
     help_url: str
-    # What the token has to be allowed to do, in the service's own words.
     scopes_hint: str
 
 
@@ -46,13 +43,7 @@ class InvalidToken(Exception):
 
 
 def accepted_token(entered: str) -> str:
-    """The entered token, with surrounding whitespace dropped.
-
-    Rejects what a paste accident produces rather than storing it and leaving
-    the service to reject it a refresh later: an empty entry, or a value
-    carrying a space, a newline, or a control character, which no service
-    issues.
-    """
+    """The entered token, with surrounding whitespace dropped."""
     token = entered.strip()
     if not token:
         raise InvalidToken("no token entered")
@@ -64,10 +55,5 @@ def accepted_token(entered: str) -> str:
 
 
 def credentials_from_token(token: str) -> Credentials:
-    """A pasted token as stored credentials.
-
-    No refresh token and no expiry: nothing here can renew what the service
-    issued directly, and claiming an expiry we were never told would only make
-    the refresh layer act on a guess.
-    """
+    """A pasted token as stored credentials."""
     return Credentials(access_token=token, refresh_token=None, expires_at=None, scope="")

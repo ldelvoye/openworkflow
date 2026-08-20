@@ -9,9 +9,6 @@ dependencies = [
     "httpx>=0.28",
     "keyring>=25.0",
     "pygithub>=2.5",
-    # PyGithub's own transport. Declared because the GitHub source catches its
-    # connection errors by type, and catching an undeclared package's
-    # exceptions leaves that translation at the mercy of a transitive bump.
     "requests>=2.32",
     "textual>=1.0",
     "tomli-w>=1.0",

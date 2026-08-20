@@ -1,11 +1,4 @@
-"""What an integration must provide, and the errors it is allowed to raise.
-
-Still narrow on purpose. Two integrations have shaped this now, and the one
-thing the second needed that the first did not is a connection path that asks
-for a pasted token instead of running OAuth — so that is what ConnectionPath
-grew, and nothing else. A field only one integration would ever read belongs to
-that integration, not here.
-"""
+"""What an integration must provide, and the errors it is allowed to raise."""
 
 from __future__ import annotations
 
@@ -23,19 +16,15 @@ from smorg.auth.token import TokenPrompt
 from smorg.core.keys import RESERVED_KEYS
 
 if TYPE_CHECKING:
-    # Deferred: shell.panel imports this module for Item, so a real import
-    # here would be circular; safe since the name is only used in a type
-    # position.
     from smorg.shell.panel import Panel
 
 
 class ActionClass(StrEnum):
-    """How far an action reaches, which is the whole safety boundary.
+    """How far an action reaches.
 
-    LOCAL touches only our own state, LAUNCH hands off to the browser or
-    clipboard, REMOTE writes to somebody's API. Only the first two are
-    implemented; REMOTE exists so adding one later is a declaration rather than
-    a retrofit.
+    LOCAL -> our own state
+    LAUNCH -> browser or clipboard
+    REMOTE -> API (not implemented yet)
     """
 
     LOCAL = "local"
@@ -55,14 +44,7 @@ class Action:
 
 @dataclass(frozen=True)
 class Item:
-    """The minimum the shell needs from any integration's data.
-
-    Change highlighting keys off updated_at and the launch action opens url, so
-    those two plus an identity are the whole shared vocabulary. Everything a
-    panel draws beyond this belongs to the integration that defined it — a
-    shared type carrying every field an integration might want would undo the
-    point of per-integration rendering.
-    """
+    """The minimum the shell needs from any integration's data."""
 
     id: str
     updated_at: datetime
@@ -71,18 +53,6 @@ class Item:
 
 @dataclass(frozen=True)
 class ConnectionPath:
-    """One way an integration can be reached: an OAuth provider to authorize
-    against, or a token the user creates in the service and pastes in. A
-    manifest can declare several so the management UI can name and offer each
-    one.
-
-    Which of the two a path is decides the whole connect flow — a browser and a
-    refreshable token on one side, one field of input and nothing to renew on
-    the other — so it is one field of a union type rather than two optionals:
-    naming both or neither is unconstructible instead of rejected, and every
-    reader branches on isinstance rather than on which optional came back None.
-    """
-
     id: str
     method: ProviderConfig | TokenPrompt
 

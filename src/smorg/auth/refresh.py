@@ -43,12 +43,7 @@ def credentials_for(
     client_id: str | None,
     http: httpx.Client,
 ) -> Credentials | None:
-    """The credentials a fetch should use, renewed first where that is possible.
-
-    The one place the two kinds of connection path diverge for a reader: a
-    pasted token has nothing behind it to renew, so it is handed over as
-    stored and the service's own rejection is what reports it as expired.
-    """
+    """The credentials a fetch should use, renewed first where that is possible."""
     method = path.method
     if isinstance(method, TokenPrompt):
         return get_credentials(integration_id)

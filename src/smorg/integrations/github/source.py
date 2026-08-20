@@ -1,13 +1,4 @@
-"""Fetch pull requests from GitHub through PyGithub and map them to typed items.
-
-Never formats. The panel decides how any of this looks.
-
-A pull request's category is the query it matched, not something read off the
-pull request afterwards. Neither a review decision nor a check result appears on
-a search result, so deciding "ready to merge" per pull request would cost a
-request each; one search per category costs a fixed handful no matter how many
-pull requests come back.
-"""
+"""Fetch pull requests from GitHub through PyGithub and map them to typed items."""
 
 from __future__ import annotations
 
@@ -40,24 +31,12 @@ from smorg.core.text import capped, printable, printable_block
 
 REQUEST_TIMEOUT_SECONDS = 30
 RESULTS_PER_PAGE = 50
-
-# A dashboard is not a backlog viewer, and a search this deep already means the
-# tab is the wrong tool. Bounds the work one refresh can do, the same way
-# Linear's MAX_PAGES does.
 MAX_PER_QUERY = 50
-
-# GitHub answers a rate-limited request with a 403 that PyGithub retries after
-# sleeping. Two is enough to ride out a secondary limit; ten (its default) would
-# park a refresh for minutes with the tab saying "loading…" the whole time.
 MAX_RETRIES = 2
 
 
 class Category(StrEnum):
-    """Which of the dashboard's buckets a pull request landed in.
-
-    Carried on the item because only `fetch` can know it — the panel has no way
-    to recompute a review decision without going back to the network.
-    """
+    """Which of the dashboard's buckets a pull request landed in."""
 
     NEEDS_YOUR_REVIEW = "needs your review"
     NEEDS_TEAM_REVIEW = "needs your team's review"
@@ -97,18 +76,10 @@ class PullRequestDetail:
 REVIEW_LIMIT = 5
 REVIEWS_FETCH_LIMIT = 25
 BODY_LIMIT = 50_000
-
-# Every search starts here: open pull requests in live repositories. An archived
-# repository's pull request cannot be merged or reviewed, so it is not work.
 BASE_QUERY = "is:pr is:open archived:false"
 
-# Order is precedence — a pull request keeps the category of the first query it
-# matched, and is not looked at again. Two entries are deliberate supersets of
-# the ones above them: `review-requested:@me` covers requests made of you and of
-# your teams both, and the trailing `author:@me draft:false` covers every
-# non-draft of yours. Each becomes "the rest" once the queries above have
-# claimed theirs, which is how "your team's review" and "waiting" are computed
-# without a second round of filtering.
+# First match wins: the broad queries sit last so each takes only what the ones
+# above left, which is how "your team's review" and "waiting" are computed.
 QUERIES: tuple[tuple[Category, str], ...] = (
     (Category.NEEDS_YOUR_REVIEW, "user-review-requested:@me"),
     (Category.NEEDS_TEAM_REVIEW, "review-requested:@me"),
@@ -130,27 +101,19 @@ def _message_of(error: GithubException) -> str:
 
 
 def _translated(error: GithubException) -> IntegrationError:
-    """An HTTP failure as one of the three the shell acts on, decided by the
-    only question it asks: would retrying help?"""
+    """One of the three IntegrationErrors, picked by whether retrying would help."""
     if error.status in (401, 403):
-        # 403 here is a token missing a scope or blocked by an organisation's
-        # SSO policy — permanent until the user reconnects, same as a 401.
+        # 403 is a token missing a scope or blocked by an organisation's SSO policy.
         return AuthExpired("GitHub rejected the stored token; it may have expired or been revoked")
     if error.status == 422:
-        # GitHub refused a query this build wrote, so a qualifier moved under
-        # us. Retrying returns the same refusal.
+        # GitHub refused a query this app wrote.
         return Malformed(f"GitHub refused the search: {printable(_message_of(error))}")
     return Unavailable(f"GitHub returned HTTP {error.status}")
 
 
 @contextmanager
 def _github_errors() -> Iterator[None]:
-    """Turn everything PyGithub and its transport raise into IntegrationError.
-
-    Wraps attribute reads as well as calls: PyGithub fetches lazily, so an
-    attribute that was not in a payload issues its own request and can fail
-    exactly like an explicit one.
-    """
+    """Turn everything PyGithub and its transport raise into IntegrationError."""
     try:
         yield
     except BadCredentialsException as error:
@@ -181,10 +144,8 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
         retry=MAX_RETRIES,
         lazy=lazy,
         # PyGithub paces every request by default, which GitHub asks for
-        # between writes. This app never writes, and a refresh is a bounded
-        # burst of reads at most once per stale_after — pacing it would put
-        # seconds on the clock of every refresh to solve a problem it cannot
-        # have. Writes keep their own default pacing.
+        # between writes. This integration doesn't write, and writes keep their
+        # own separate pacing regardless.
         seconds_between_requests=0,
     )
 
@@ -207,12 +168,12 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ..
                 # the first category to claim a pull request keeps it.
                 found.setdefault(pull.id, pull)
     newest_first = sorted(found.values(), key=lambda pull: pull.updated_at, reverse=True)
-    return tuple(newest_first)
+    return tuple[PullRequest](newest_first)
 
 
 def _first[T: GithubObject](results: PaginatedList[T], limit: int) -> list[T]:
-    """Up to `limit` results. A PaginatedList fetches a page at a time as it is
-    walked, so stopping the walk here is also what stops the paging."""
+    """Up to `limit` results. A PaginatedList pages as it is walked, so stopping
+    the walk is what stops the paging."""
     found: list[T] = []
     for result in results:
         found.append(result)
@@ -239,8 +200,7 @@ def _moment_of(value: object, field: str) -> datetime:
 
 
 def _repository_of(repository_url: str) -> str:
-    """The owner/name a repository API address points at, e.g.
-    https://api.github.com/repos/octocat/hello -> octocat/hello."""
+    """Returns the `owner/name` of a repository."""
     marker = "/repos/"
     path = urlsplit(repository_url).path
     if marker not in path:
@@ -252,7 +212,7 @@ def _repository_of(repository_url: str) -> str:
 
 
 def _author_of(result: IssueSearchResult) -> str:
-    """The login of whoever opened it, or "" for a deleted account."""
+    """Returns the login of whoever opened the pull request, or "" for a deleted account."""
     user = result.user
     if user is None:
         return ""
@@ -284,7 +244,8 @@ def _pull_request_of(result: IssueSearchResult, category: Category) -> PullReque
 
 def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> PullRequestDetail:
     """The selected pull request's expanded view: description, branches, and
-    the newest reviews (oldest first, so reading order matches the thread)."""
+    the newest reviews.
+    """
     if not isinstance(item, PullRequest):
         raise Malformed(f"expected a pull request, got {type(item).__name__}")
     with _client(credentials, lazy=True) as client, _github_errors():
@@ -293,17 +254,14 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
         repository = client.get_repo(item.repository)
         pull = repository.get_pull(item.number)
         raw_reviews = _first(pull.get_reviews(), REVIEWS_FETCH_LIMIT)
-        reviews = sorted(
-            (_review_of(raw) for raw in raw_reviews),
-            # A pending review has no submission time; sorting it last keeps it
-            # next to the newest submitted ones rather than at the top.
-            key=lambda review: review.submitted_at or NEVER_SUBMITTED,
-        )
+        all_reviews = [_review_of(raw) for raw in raw_reviews]
+        oldest_first = sorted(all_reviews, key=_submitted_order)
+        newest = oldest_first[-REVIEW_LIMIT:]
         return PullRequestDetail(
             body=_body_of(pull),
             base=printable(pull.base.ref if pull.base else ""),
             head=printable(pull.head.ref if pull.head else ""),
-            reviews=tuple(reviews[-REVIEW_LIMIT:]),
+            reviews=tuple[Review](newest),
             hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
             hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
         )
@@ -314,9 +272,15 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
 NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
 
 
+def _submitted_order(review: Review) -> datetime:
+    """Pending reviews sort last."""
+    if review.submitted_at is None:
+        return NEVER_SUBMITTED
+    return review.submitted_at
+
+
 def _body_of(pull: GithubPullRequest) -> str:
-    """The description, sanitized whole and then capped — capping first could
-    cut inside a markdown construct the panel then renders half of."""
+    """Returns the description, sanitized and capped, or "" if there is none."""
     raw = pull.body
     if not isinstance(raw, str):
         return ""
@@ -324,6 +288,7 @@ def _body_of(pull: GithubPullRequest) -> str:
 
 
 def _review_of(raw: PullRequestReview) -> Review:
+    """Returns a typed Review; anything GitHub omitted degrades to "" or None."""
     author = raw.user
     if author is None or not isinstance(author.login, str):
         name = ""

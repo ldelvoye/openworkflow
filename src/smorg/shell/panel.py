@@ -152,16 +152,14 @@ class Panel(Vertical):
         yield detail
 
     def render_ready(self) -> RenderableType:
-        """The tab's ready view, in whatever renderable the integration draws
-        — a single column of rows is one shape, side-by-side columns another.
-        Overridden by an integration; the base draws identities only."""
+        """The tab's body in the READY state, for an integration to override."""
         return Text(self.ready_text())
 
     def ready_text(self) -> str:
-        """The same view flattened to plain text: what the stale banner sits
-        above, and what a panel's tests read. A panel whose render_ready() is
-        not a Text overrides this alongside it, since there is no general way
-        to flatten an arbitrary renderable back to the rows it drew."""
+        """Same view as `render_ready()` but flattened to plain text.
+
+        Override it alongside any `render_ready()` that returns is not a Text, such as a grid.
+        """
         return "\n".join(item.id for item in self.items)
 
     @staticmethod
