@@ -1,7 +1,7 @@
 """The only module that reads or writes credentials.
 
 Defaults to the OS keychain. An insecure keyring backend is refused rather than
-used — an unrelated ``keyrings.alt`` install can make what should be a loud
+used, because an unrelated ``keyrings.alt`` install can make what should be a loud
 "no secure backend" failure silently pick a plaintext one instead.
 
 The opt-in fallback store is not a substitute for a keychain: it is plaintext
@@ -104,7 +104,7 @@ def now() -> datetime:
 def _to_dict(credentials: Credentials) -> StoredCredential:
     """Serialise for storage.
 
-    Holds raw tokens with no redacting repr, unlike Credentials — must never
+    Holds raw tokens with no redacting repr, unlike Credentials, so it must never
     leave this module. A test enforces that.
     """
     return {
@@ -185,7 +185,7 @@ class _KeyringStore:
     """The OS keychain, entered under one account per integration.
 
     keyring.errors.KeyringError is not a CredentialStoreError, so every call
-    into keyring is translated here — otherwise a locked keychain or a denied
+    into keyring is translated here; otherwise a locked keychain or a denied
     prompt crashes the caller instead of degrading like any other store failure.
     """
 

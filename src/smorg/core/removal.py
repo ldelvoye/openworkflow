@@ -1,8 +1,6 @@
-"""Remove every trace of an integration: stored credentials, its config tab,
-and its seen-state marks.
+"""Remove every trace of an integration: credentials, config tab, seen-state.
 
-Lives in core, not cli or shell: both need it, and the CLI imports the shell,
-so shell code could never reach logic defined in cli.
+Lives in core because the CLI and the shell both need it, and shell code can never import from cli.
 """
 
 from __future__ import annotations
@@ -18,13 +16,20 @@ from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
 
 
+@dataclass(frozen=True)
+class RemovalResult:
+    supported: bool
+    had_credentials: bool
+    revoked: bool
+    tab_removed: bool
+
+
 def revoke_best_effort(
     provider: oauth.ProviderConfig, client_id: str, credentials: Credentials
 ) -> bool:
-    """Ask the provider to revoke a token. Never raises.
+    """Ask the provider to revoke a token.
 
-    Local deletion happens either way, so a revocation failure must not block
-    it: being offline must not leave credentials stranded on the machine.
+    Local deletion happens either way, so a revocation failure is non-blocking.
     """
     try:
         with httpx.Client(timeout=15) as client:
@@ -34,19 +39,11 @@ def revoke_best_effort(
         return False
 
 
-@dataclass(frozen=True)
-class RemovalResult:
-    supported: bool
-    had_credentials: bool
-    revoked: bool
-    tab_removed: bool
-
-
 def remove_integration(integration_id: str) -> RemovalResult:
     """Delete every stored trace of an integration and report what was found.
 
-    Works even for an integration this build no longer registers — this is
-    the only path that can still remove its leftover credentials/tab.
+    Works even for an integration this build no longer registers. This is the only path that can
+    still remove its leftover credentials/tab.
     """
     try:
         integration = get_integration(integration_id)
@@ -73,12 +70,11 @@ def remove_integration(integration_id: str) -> RemovalResult:
         if path is not None and isinstance(path.method, oauth.ProviderConfig):
             revoked = revoke_best_effort(path.method, tab.client_id, credentials)
 
-    # Credentials before config: dropping the tab first could strand
-    # credentials with nothing left pointing at them.
+    # Credentials before config: dropping the tab first could strand credentials with nothing left
+    # pointing at them.
     delete_credentials(integration_id)  # CredentialStoreError propagates
 
-    tab_removed = tab is not None
-    if tab_removed:
+    if tab is not None:
         remaining_tabs = tuple(
             entry for entry in config.tabs if entry.integration != integration_id
         )
@@ -92,5 +88,5 @@ def remove_integration(integration_id: str) -> RemovalResult:
         supported=integration is not None,
         had_credentials=credentials is not None,
         revoked=revoked,
-        tab_removed=tab_removed,
+        tab_removed=tab is not None,
     )

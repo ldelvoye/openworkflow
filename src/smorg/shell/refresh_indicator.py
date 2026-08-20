@@ -1,7 +1,7 @@
 """Transient staged feedback for the refresh keybind.
 
-Only the r key shows this; tab-switch and focus refreshes stay silent —
-feedback answers "did my keypress register?", which those never ask.
+Only the r key shows this; tab-switch and focus refreshes stay silent, because only a pressed
+key needs visible confirmation that it registered.
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ from textual.widgets import Static
 
 
 class RefreshStage(StrEnum):
-    """The stages a keybind-triggered refresh passes through, in order.
-    FAILED ends the sequence early; the panel itself shows the error."""
+    """The stages a keybind-triggered refresh passes through, in order. FAILED ends the sequence
+    early; the panel itself shows the error.
+    """
 
     CONNECTING = "connecting"
     FETCHING = "fetching"
@@ -38,7 +39,7 @@ _FILLED_CELLS = {
 _TOTAL_CELLS = 3
 
 
-def _stage_text(stage: RefreshStage) -> Text:
+def _format_stage(stage: RefreshStage) -> Text:
     filled = _FILLED_CELLS[stage]
     bar = "▰" * filled + "▱" * (_TOTAL_CELLS - filled)
     return Text(f"{bar} {_LABELS[stage]}", style="dim")
@@ -47,8 +48,8 @@ def _stage_text(stage: RefreshStage) -> Text:
 class RefreshIndicator(Static):
     """A one-line overlay above the footer showing refresh progress.
 
-    Lives on its own layer (see SmorgApp.CSS) so appearing never reflows
-    the panel; width: auto keeps it covering only the cells it draws.
+    Lives on its own layer (see SmorgApp.CSS) so appearing never reflows the panel; width: auto
+    keeps it covering only the cells it draws.
     """
 
     DEFAULT_CSS = """
@@ -73,7 +74,7 @@ class RefreshIndicator(Static):
         if stage is RefreshStage.FAILED:
             self.display = False
             return
-        self.update(_stage_text(stage))
+        self.update(_format_stage(stage))
         self.display = True
         if stage is RefreshStage.DONE:
             self._hide_timer = self.set_timer(DONE_LINGER_SECONDS, self._hide)

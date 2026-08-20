@@ -34,7 +34,7 @@ from smorg.core.contract import (
     Malformed,
     Unavailable,
 )
-from smorg.core.text import capped, printable, printable_block
+from smorg.core.text import sanitize_block, sanitize_line, truncate
 
 
 class Category(StrEnum):
@@ -59,8 +59,8 @@ BODY_LIMIT = 50_000
 
 BASE_QUERY = "is:pr is:open archived:false"
 
-# First match wins: the broad queries sit last so each takes only what the ones
-# above left, which is how "your team's review" and "waiting" are computed.
+# First match wins: the broad queries sit last so each takes only what the ones above left,
+# which is how "your team's review" and "waiting" are computed.
 QUERIES: tuple[tuple[Category, str], ...] = (
     (Category.NEEDS_YOUR_REVIEW, "user-review-requested:@me"),
     (Category.NEEDS_TEAM_REVIEW, "review-requested:@me"),
@@ -74,8 +74,8 @@ QUERIES: tuple[tuple[Category, str], ...] = (
 # How GitHub names an organization that requires SSO, in the body of its 403.
 SAML_ENFORCEMENT = "saml enforcement"
 
-# Where a review that was never submitted sorts. Timezone-aware to match
-# GitHub's own stamps: sorting an aware and a naive datetime together raises.
+# Where a review that was never submitted sorts. Timezone-aware to match GitHub's own stamps:
+# sorting an aware and a naive datetime together raises.
 NEVER_SUBMITTED = datetime.max.replace(tzinfo=UTC)
 
 
@@ -116,9 +116,9 @@ def _message_of(error: GithubException) -> str:
 
 
 def _translated(error: GithubException) -> IntegrationError:
-    """The IntegrationError matching what would fix the failure: a new
-    token (401), access granted (403), a corrected query (422), or waiting
-    (any other status)."""
+    """The IntegrationError matching what would fix the failure: a new token (401), access
+    granted (403), a corrected query (422), or waiting (any other status).
+    """
     if error.status == 401:
         return AuthExpired("GitHub rejected the stored token; it may have expired or been revoked")
     if error.status == 403:
@@ -129,7 +129,7 @@ def _translated(error: GithubException) -> IntegrationError:
         )
     if error.status == 422:
         # GitHub refused a query this app wrote.
-        return Malformed(f"GitHub refused the search: {printable(_message_of(error))}")
+        return Malformed(f"GitHub refused the search: {sanitize_line(_message_of(error))}")
     return Unavailable(f"GitHub returned HTTP {error.status}")
 
 
@@ -155,9 +155,9 @@ def _github_errors() -> Iterator[None]:
 def _client(credentials: Credentials, lazy: bool = False) -> Github:
     """A client for one call into GitHub.
 
-    `lazy` stops an object built from an address it was handed from fetching
-    its own payload before anything reads it — which is how the detail pane
-    addresses a repository by name without paying a request for it.
+    `lazy` stops an object built from an address it was handed from fetching its own payload
+    before anything reads it. That is how the detail pane addresses a repository by name without
+    paying a request for it.
     """
     return Github(
         auth=Auth.Token(credentials.access_token),
@@ -165,9 +165,8 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
         per_page=RESULTS_PER_PAGE,
         retry=MAX_RETRIES,
         lazy=lazy,
-        # PyGithub paces every request by default, which GitHub asks for
-        # between writes. This integration doesn't write, and writes keep their
-        # own separate pacing regardless.
+        # PyGithub paces every request by default, which GitHub asks for between writes. This
+        # integration doesn't write, and writes keep their own separate pacing regardless.
         seconds_between_requests=0,
     )
 
@@ -175,27 +174,27 @@ def _client(credentials: Credentials, lazy: bool = False) -> Github:
 def fetch(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ...]:
     """Every open pull request that is yours or waiting on you, newest first.
 
-    `http` goes unused: PyGithub brings its own transport, so the shell's shared
-    httpx client has nothing to do here.
+    `http` goes unused: PyGithub brings its own transport, so the shell's shared httpx client
+    has nothing to do here.
     """
     found: dict[str, PullRequest] = {}
-    # Closed on the way out: a client owns a connection pool, and a dashboard
-    # that refreshes every time you look at it would otherwise leave one behind
-    # per refresh.
+    # Closed on the way out: a client owns a connection pool, and a dashboard that refreshes
+    # every time you look at it would otherwise leave one behind per refresh.
     with _client(credentials) as client:
         for category, qualifiers in QUERIES:
             for result in _search(client, f"{BASE_QUERY} {qualifiers}"):
                 pr = _pull_request_of(result, category)
-                # setdefault, not assignment: QUERIES is in precedence order, so
-                # the first category to claim a pull request keeps it.
+                # setdefault, not assignment: QUERIES is in precedence order, so the first
+                # category to claim a pull request keeps it.
                 found.setdefault(pr.id, pr)
     newest_first = sorted(found.values(), key=lambda pr: pr.updated_at, reverse=True)
     return tuple(newest_first)
 
 
 def _first[T: GithubObject](results: PaginatedList[T], limit: int) -> list[T]:
-    """Up to `limit` results. A PaginatedList pages as it is walked, so stopping
-    the walk is what stops the paging."""
+    """Up to `limit` results. A PaginatedList pages as it is walked, so stopping the walk is
+    what stops the paging.
+    """
     found: list[T] = []
     for result in results:
         found.append(result)
@@ -226,10 +225,10 @@ def _repository_of(repository_url: str) -> str:
     marker = "/repos/"
     path = urlsplit(repository_url).path
     if marker not in path:
-        raise Malformed(f"a pull request named no repository: {printable(repository_url)}")
+        raise Malformed(f"a pull request named no repository: {sanitize_line(repository_url)}")
     name = path.split(marker, 1)[1].strip("/")
     if not name:
-        raise Malformed(f"a pull request named no repository: {printable(repository_url)}")
+        raise Malformed(f"a pull request named no repository: {sanitize_line(repository_url)}")
     return name
 
 
@@ -241,7 +240,7 @@ def _author_of(result: IssueSearchResult) -> str:
     login = user.login
     if not isinstance(login, str):
         return ""
-    return printable(login)
+    return sanitize_line(login)
 
 
 def _pull_request_of(result: IssueSearchResult, category: Category) -> PullRequest:
@@ -251,13 +250,13 @@ def _pull_request_of(result: IssueSearchResult, category: Category) -> PullReque
         if not isinstance(number, int):
             raise Malformed(f"'number' was {type(number).__name__}, expected an integer")
         return PullRequest(
-            # Unique across every repository in the tab, and stable across
-            # refreshes — which is what the seen-state keys off.
+            # Unique across every repository in the tab, and stable across refreshes — which
+            # is what the seen-state keys off.
             id=f"{repository}#{number}",
             updated_at=_moment_of(result.updated_at, "updated_at"),
             url=_text_of(result.html_url, "html_url"),
             number=number,
-            title=printable(_text_of(result.title, "title")),
+            title=sanitize_line(_text_of(result.title, "title")),
             repository=repository,
             author=_author_of(result),
             category=category,
@@ -279,8 +278,8 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
         newest = oldest_first[-REVIEW_LIMIT:]
         return PullRequestDetail(
             body=_body_of(pr),
-            base=printable(pr.base.ref if pr.base else ""),
-            head=printable(pr.head.ref if pr.head else ""),
+            base=sanitize_line(pr.base.ref if pr.base else ""),
+            head=sanitize_line(pr.head.ref if pr.head else ""),
             reviews=tuple(newest),
             hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
             hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
@@ -299,7 +298,7 @@ def _body_of(pr: GithubPullRequest) -> str:
     raw = pr.body
     if not isinstance(raw, str):
         return ""
-    return capped(printable_block(raw, limit=None), BODY_LIMIT)
+    return truncate(sanitize_block(raw, limit=None), BODY_LIMIT)
 
 
 def _review_of(raw: PullRequestReview) -> Review:
@@ -308,9 +307,9 @@ def _review_of(raw: PullRequestReview) -> Review:
     if author is None or not isinstance(author.login, str):
         name = ""
     else:
-        name = printable(author.login)
+        name = sanitize_line(author.login)
     if isinstance(raw.state, str):
-        state = printable(raw.state)
+        state = sanitize_line(raw.state)
     else:
         state = ""
     if isinstance(raw.submitted_at, datetime):

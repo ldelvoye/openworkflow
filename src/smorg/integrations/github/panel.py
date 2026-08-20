@@ -145,8 +145,8 @@ class GitHubPanel(Panel):
         return Group(*parts)
 
     def _format_column_lines(self, column: int) -> list[Text]:
-        """Every line under a column's title, headings and rows alike, so the
-        rendered view and ready_text() cannot drift apart.
+        """Every line under a column's title, headings and rows alike, so the rendered view and
+        ready_text() cannot drift apart.
         """
         if column == self.column:
             selected = self.selected_item()
@@ -183,9 +183,8 @@ class GitHubPanel(Panel):
         row.append(f"{pr.repository}#{pr.number}", style="dim")
         row.append("  ")
         row.append(pr.title)
-        # One row per pull request: a wrapped title spills into the next row's
-        # place and breaks a column that is already only half the screen wide.
-        # The full title is one "o" away.
+        # One row per pull request: a wrapped title spills into the next row's place and breaks
+        # a column that is already only half the screen wide. The full title is one "o" away.
         row.no_wrap = True
         row.overflow = "ellipsis"
         return row
@@ -194,9 +193,9 @@ class GitHubPanel(Panel):
         if not isinstance(detail, PullRequestDetail):
             return super().render_detail(item, detail)
         parts: list[RenderableType] = [self._format_detail_header(item, detail), Text()]
-        # Markdown() interprets its input as CommonMark, not Rich's own
-        # "[style]" markup, so a hostile "[red]x[/red]" body can't style or
-        # hide anything — only headings/emphasis/code/lists render as markdown.
+        # Markdown() interprets its input as CommonMark, not Rich's own "[style]" markup, so a
+        # hostile "[red]x[/red]" body can't style or hide anything — only headings, emphasis,
+        # code, and lists render as markdown.
         if detail.body:
             body = detail.body
         else:
@@ -250,7 +249,7 @@ class GitHubPanel(Panel):
     def action_toggle_detail(self) -> None:
         super().action_toggle_detail()
         pr = self.selected_item()
-        if pr is not None and self.detail_showing(pr):
+        if pr is not None and self.is_detail_showing(pr):
             self.mark_seen(pr)
 
     def action_cursor_down(self) -> None:

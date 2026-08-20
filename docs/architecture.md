@@ -105,6 +105,8 @@ Errors are typed by the one question the shell acts on — **could retrying
 help?**
 
 - `AuthExpired` — no; offer a re-connect.
+- `AccessNotAllowed` — no; the credentials lack permission, and a re-connect
+  with the same access would not grant it. Keep last-good data.
 - `Unavailable` — yes; keep last-good data, mark it stale ("as of 14:02").
 - `Malformed` — no; the tab is broken, say so plainly.
 

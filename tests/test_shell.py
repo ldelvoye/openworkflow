@@ -628,9 +628,9 @@ async def test_no_tabs_help_overlay_shows_the_connect_hint():
 
 @pytest.mark.asyncio
 async def test_question_mark_on_a_tab_with_no_registered_integration_does_not_crash():
-    # "alpha" has no integration (see _panel_for's UnknownIntegration handling
-    # elsewhere in this file); _help_tab_section's own except UnknownIntegration
-    # branch must produce an empty tab section rather than raising.
+    # "alpha" has no integration (see _build_panel's UnknownIntegration handling elsewhere in
+    # this file); _help_tab_section's own except UnknownIntegration branch must produce an
+    # empty tab section rather than raising.
     app = SmorgApp(tabs=(TabConfig("alpha"),))
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -817,6 +817,37 @@ async def test_a_failed_detail_fetch_lands_in_the_region_not_the_list(monkeypatc
 
     assert panel._detail_errors[panel.detail_key(issue("ENG-1"))] == "linear is down"
     assert panel.state is PanelState.READY  # the list never notices
+
+
+@pytest.mark.asyncio
+async def test_an_integration_without_fetch_detail_reports_no_detail_view(monkeypatch):
+    """fetch_detail is opt-in (SupportsDetail): a panel that asks anyway gets a message in the
+    pane, never an AttributeError.
+    """
+    _stub_credentials(monkeypatch)
+
+    class _NoDetail:
+        def __init__(self) -> None:
+            self.manifest = _fake_manifest()
+            self.panel_class = LinearPanel
+
+        def fetch(self, credentials, http):
+            return ()
+
+    monkeypatch.setattr("smorg.shell.app.get_integration", lambda integration_id: _NoDetail())
+    app = SmorgApp(tabs=(TabConfig("linear"),))
+    async with app.run_test() as pilot:
+        await pilot.app.workers.wait_for_complete()
+        panel = app.query_one(LinearPanel)
+        panel.items = (issue("ENG-1"),)
+        panel.state = PanelState.READY
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    key = panel.detail_key(issue("ENG-1"))
+    assert panel._detail_errors[key] == "this tab has no detail view"
 
 
 # --- The detail cache is pruned as items refresh, so it cannot grow forever ---

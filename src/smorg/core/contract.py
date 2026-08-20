@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
 
@@ -35,8 +35,8 @@ class ActionClass(StrEnum):
 @dataclass(frozen=True)
 class Action:
     id: str
-    # Written in its natural form (e.g. "Open in Linear"); each UI surface
-    # applies its own casing convention at render time.
+    # Written in its natural form (e.g. "Open in Linear"); each UI surface applies its own
+    # casing convention at render time.
     label: str
     key: str
     action_class: ActionClass
@@ -58,7 +58,8 @@ class ConnectionPath:
 
 
 def _duplicates(values: Sequence[str]) -> list[str]:
-    return sorted({value for value in values if values.count(value) > 1})
+    repeated = {value for value in values if values.count(value) > 1}
+    return sorted(repeated)
 
 
 @dataclass(frozen=True)
@@ -90,10 +91,9 @@ class Manifest:
             )
 
     def connection(self, chosen: str | None) -> ConnectionPath:
-        """Resolve a config-recorded path id to its declaration; None means
-        "nothing recorded yet" and returns the first declared path. The
-        single resolver every call site uses, instead of indexing connections
-        directly."""
+        """The declared path for a config-recorded id; None (nothing recorded yet) means the
+        first declared path. The single resolver: call sites never index connections directly.
+        """
         if chosen is None:
             return self.connections[0]
         for path in self.connections:
@@ -126,9 +126,8 @@ class Malformed(IntegrationError):
 
 
 class Integration(Protocol):
-    # A property rather than an attribute so the protocol is read-only, which
-    # frozen dataclasses satisfy. Nothing assigns a manifest; it is a
-    # declaration, not state.
+    # A property rather than an attribute so the protocol is read-only, which frozen dataclasses
+    # satisfy. Nothing assigns a manifest; it is a declaration, not state.
     @property
     def manifest(self) -> Manifest: ...
 
@@ -141,8 +140,15 @@ class Integration(Protocol):
         """Return the integration's items. Raises IntegrationError, never anything else."""
         ...
 
+
+@runtime_checkable
+class SupportsDetail(Protocol):
+    """An integration whose items open a detail view. Optional: the shell isinstance-checks
+    before fetching, so an integration without a detail pane simply never defines fetch_detail.
+    """
+
     def fetch_detail(self, credentials: Credentials, http: httpx.Client, item: Item) -> object:
-        """One item's expanded detail, in whatever shape this integration's
-        panel renders. The shell never inspects it. Raises IntegrationError,
-        never anything else."""
+        """One item's expanded detail, in whatever shape this integration's panel renders. The
+        shell never inspects it. Raises IntegrationError, never anything else.
+        """
         ...

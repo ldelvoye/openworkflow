@@ -1,10 +1,4 @@
-"""Turning untrusted server JSON into typed fields, or a Malformed tab.
-
-A field this build depends on is either exactly the type expected or the
-whole response is untrusted — there is no silent coercion. Each helper
-raises Malformed naming the field, so a shape mismatch degrades one tab
-rather than crashing with a bare KeyError or TypeError.
-"""
+"""Turning untrusted server JSON into typed fields, or a Malformed tab."""
 
 from __future__ import annotations
 
@@ -12,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from smorg.core.contract import Malformed
-from smorg.core.text import printable
+from smorg.core.text import sanitize_line
 
 
 def required_string(raw: dict[str, Any], key: str) -> str:
@@ -38,4 +32,6 @@ def timestamp(raw: dict[str, Any], key: str) -> datetime:
     try:
         return datetime.fromisoformat(raw[key])
     except (KeyError, TypeError, ValueError) as error:
-        raise Malformed(f"{key!r} was not a valid timestamp ({printable(str(error))})") from error
+        raise Malformed(
+            f"{key!r} was not a valid timestamp ({sanitize_line(str(error))})"
+        ) from error

@@ -58,21 +58,21 @@ class RemovableTab:
 
 
 def removable_tabs() -> tuple[RemovableTab, ...]:
-    """One entry per configured tab, known-to-this-build or not. A config
-    that can't even be read yields no commands rather than raising through
-    the palette.
+    """One entry per configured tab, known-to-this-build or not. A config that can't even be
+    read yields no commands rather than raising through the palette.
     """
     try:
         config = load_config()
     except ConfigError:
         return ()
-    return tuple[RemovableTab, ...](_describe_tab(tab) for tab in config.tabs)
+    return tuple(_describe_tab(tab) for tab in config.tabs)
 
 
 def _describe_tab(tab: TabConfig) -> RemovableTab:
-    """Known -> the manifest's display name and its resolved connection id
-    (a recorded-but-stale id is kept verbatim, never re-resolved). Unknown ->
-    the raw integration id, and only a connection id already on record."""
+    """Known -> the manifest's display name and its resolved connection id (a recorded-but-stale
+    id is kept verbatim, never re-resolved). Unknown -> the raw integration id, and only a
+    connection id already on record.
+    """
     try:
         integration = get_integration(tab.integration)
     except UnknownIntegration:
@@ -84,9 +84,7 @@ def _describe_tab(tab: TabConfig) -> RemovableTab:
     return RemovableTab(tab.integration, integration.manifest.display_name, connection_id)
 
 
-def removal_toast(display_name: str, result: RemovalResult) -> str:
-    """Turn a successful RemovalResult into the toast text. No prior
-    credentials means no token fate to report at all."""
+def _format_removal_toast(display_name: str, result: RemovalResult) -> str:
     if not result.had_credentials:
         return f"removed {display_name}"
     if result.revoked:
@@ -95,9 +93,8 @@ def removal_toast(display_name: str, result: RemovalResult) -> str:
 
 
 class ManagementScreen(ModalBox):
-    """Base for modal screens that manage integrations — add and remove.
-    SmorgApp.check_action refuses every shell-level action while one of
-    these is the top screen.
+    """Base for the modal screens that manage integrations (add and remove). SmorgApp's
+    check_action refuses every shell-level action while one of these is the top screen.
     """
 
     DEFAULT_CSS = """
@@ -106,9 +103,9 @@ class ManagementScreen(ModalBox):
 
 
 class RemoveIntegrationList(ManagementScreen):
-    """One row per configured tab; enter hands off to RemoveConfirmModal,
-    escape cancels. Never both on the stack at once — this screen dismisses
-    itself before pushing the confirm modal."""
+    """One row per configured tab; enter hands off to RemoveConfirmModal, escape cancels. This
+    screen dismisses itself before pushing the confirm modal, so the two are never stacked.
+    """
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
@@ -130,9 +127,9 @@ class RemoveIntegrationList(ManagementScreen):
 
 
 class RemoveConfirmModal(ManagementScreen):
-    """Confirm, then remove: y/n or escape decide. Once confirmed, a bounded
-    worker runs and every key is inert until it reports back — removal is
-    not cancellable."""
+    """Confirm, then remove: y/n or escape decide. Once confirmed, a worker runs and every key
+    is ignored until it reports back; removal is not cancellable.
+    """
 
     BINDINGS = [
         Binding("y", "confirm", "confirm"),
@@ -179,8 +176,8 @@ class RemoveConfirmModal(ManagementScreen):
         try:
             result = remove_integration(self.integration_id)
         except (CredentialStoreError, ConfigError, UnknownIntegration) as error:
-            # UnknownIntegration: the tab vanished externally (e.g. a CLI
-            # logout) between listing it and confirming — same error toast.
+            # UnknownIntegration: the tab vanished externally (e.g. a CLI logout) between
+            # listing it and confirming — same error toast.
             self.app.call_from_thread(self._fail, str(error))
             return
         self.app.call_from_thread(self._succeed, result)
@@ -195,12 +192,12 @@ class RemoveConfirmModal(ManagementScreen):
 
         app = self.app
         assert isinstance(app, SmorgApp)
-        # remove_integration() purged the file; forget the live instance too,
-        # or the next save() writes these marks back.
+        # remove_integration() purged the file; forget the live instance too, or the next save()
+        # writes these marks back.
         app.seen.forget(self.integration_id)
         await app.drop_tab(self.integration_id)
         self.dismiss()
-        app.notify(removal_toast(self.display_name, result))
+        app.notify(_format_removal_toast(self.display_name, result))
 
 
 @dataclass(frozen=True)
@@ -211,17 +208,17 @@ class AddableIntegration:
 
 
 def addable_integrations() -> tuple[AddableIntegration, ...]:
-    """Every registered manifest with no configured tab (one tab per
-    integration; re-auth of a configured one stays `smorg connect`), each
-    carrying its declared connection paths in declaration order. A config
-    that can't even be read yields no commands, same as removable_tabs.
+    """Every registered manifest with no configured tab (one tab per integration; re-auth of a
+    configured one stays `smorg connect`), each carrying its declared connection paths in
+    declaration order. A config that can't even be read yields no commands, same as
+    removable_tabs.
     """
     try:
         config = load_config()
     except ConfigError:
         return ()
     configured_ids = {tab.integration for tab in config.tabs}
-    return tuple[AddableIntegration, ...](
+    return tuple(
         AddableIntegration(manifest.id, manifest.display_name, manifest.connections)
         for manifest in manifests()
         if manifest.id not in configured_ids
@@ -229,9 +226,9 @@ def addable_integrations() -> tuple[AddableIntegration, ...]:
 
 
 class AddIntegrationList(ManagementScreen):
-    """One row per addable integration; enter hands off to AddConnectionList,
-    escape cancels. Never both on the stack at once — this screen dismisses
-    itself before pushing the next one."""
+    """One row per addable integration; enter hands off to AddConnectionList, escape cancels.
+    This screen dismisses itself before pushing the next one, so the two are never stacked.
+    """
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
@@ -265,13 +262,10 @@ async def open_tab_for(
     on_store_failure: Callable[[], None] | None = None,
     warning: str | None = None,
 ) -> None:
-    """Store credentials, record the tab, and mount it live — the finishing
-    half every connect flow shares, whichever way the credentials arrived.
+    """Store credentials, record the tab, and mount it live. Every connect flow ends here.
 
-    Credentials are written before the config entry: a recorded tab whose token
-    never made it is a broken tab, where a stored token with no tab is an
-    orphan `smorg logout` can still clear. `on_store_failure` is how a flow
-    that could hand a live token back does so before giving up.
+    Credentials are written before the config entry: a recorded tab without its token is broken,
+    while a stored token without a tab is an orphan that `smorg logout` can still clear.
     """
     try:
         set_credentials(tab_config.integration, credentials)
@@ -285,8 +279,7 @@ async def open_tab_for(
     try:
         save_config(add_tab(load_config(), tab_config))
     except ConfigError as error:
-        # Credentials stay stored — same gap cli._connect has; no invented
-        # recovery here either.
+        # Credentials stay stored — same gap cli._connect has.
         screen.dismiss()
         screen.app.notify(str(error), severity="error")
         return
@@ -305,18 +298,14 @@ async def open_tab_for(
 
 
 def connect_screen_for(integration: AddableIntegration, path: ConnectionPath) -> ManagementScreen:
-    """Which connect flow a chosen path leads to: the browser wait, or one
-    field of input. The path decides, and this is the only place that asks."""
+    """Which connect screen a chosen path leads to"""
     if isinstance(path.method, TokenPrompt):
         return TokenModal(integration.integration_id, integration.display_name, path)
     return ConnectModal(integration.integration_id, integration.display_name, path)
 
 
 class AddConnectionList(ManagementScreen):
-    """One row per the chosen integration's declared connection paths, even
-    when there is only one — the flow's shape stays the same regardless of
-    how many paths an integration declares. Escape cancels; selecting
-    dismisses and pushes whichever connect screen the path calls for."""
+    """One row per declared connection path"""
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
@@ -344,8 +333,8 @@ class AddConnectionList(ManagementScreen):
 class TokenModal(ManagementScreen):
     """Ask for a token the user created in the service themselves, and store it.
 
-    No worker and no cancellation window, unlike ConnectModal: nothing here
-    waits on a network, so the only two outcomes are submitted and escaped.
+    No worker and no cancellation window, unlike ConnectModal: nothing here waits on a network,
+    so the only two outcomes are submitted and escaped.
     """
 
     DEFAULT_CSS = """
@@ -365,8 +354,7 @@ class TokenModal(ManagementScreen):
         self.prompt = prompt
 
     def compose(self) -> ComposeResult:
-        # password: the token is a live credential, and a terminal's scrollback
-        # outlives this screen.
+        # password: a live credential, and a terminal's scrollback outlives this screen.
         entry = Input(password=True, placeholder=self.prompt.label, id="token")
         box = Vertical(
             Static(self.body_text(), markup=False, id="body"),
@@ -398,8 +386,8 @@ class TokenModal(ManagementScreen):
         try:
             token = accepted_token(event.value)
         except InvalidToken as error:
-            # Stays open with the field cleared: the fix is another paste, and
-            # dismissing would cost the user the whole menu to get back here.
+            # Stays open with the field cleared: the fix is another paste, and dismissing would
+            # cost the user the whole menu to get back here.
             event.input.value = ""
             self.app.notify(str(error), severity="error")
             return
@@ -408,12 +396,9 @@ class TokenModal(ManagementScreen):
 
 
 class ConnectModal(ManagementScreen):
-    """Run the OAuth connect for one integration/path in-app: a
-    @work(thread=True) worker calls perform_login while the browser opens and
-    the TUI stays input-blocked. Escape cancels via a threading.Event, but
-    only while perform_login is still waiting — once it returns or raises,
-    check_action goes inert, same idiom as RemoveConfirmModal's non-cancellable
-    removal, so a stray keypress can't race the finalize steps below.
+    """Run the OAuth connect for one integration and path in-app while the TUI stays
+    input-blocked. Escape cancels only while perform_login is still waiting; after it returns or
+    raises, check_action ignores every key so nothing can race the finalize steps.
     """
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
@@ -468,10 +453,10 @@ class ConnectModal(ManagementScreen):
                     cancelled=self._cancelled_event,
                 )
         except LoginCancelled:
-            self.app.call_from_thread(self._on_cancelled)
+            self.app.call_from_thread(self._close)
             return
         except OAuthError as error:
-            self.app.call_from_thread(self._on_failed, str(error))
+            self.app.call_from_thread(self._close, str(error))
             return
         self.app.call_from_thread(self._on_succeeded, client_id, credentials)
 
@@ -479,21 +464,18 @@ class ConnectModal(ManagementScreen):
         self._url = url
         self.query_one("#body", Static).update(self._body_text())
 
-    def _on_cancelled(self) -> None:
+    def _close(self, error: str | None = None) -> None:
         self._cancellable = False
         self.dismiss()
-
-    def _on_failed(self, message: str) -> None:
-        self._cancellable = False
-        self.dismiss()
-        self.app.notify(message, severity="error")
+        if error is not None:
+            self.app.notify(error, severity="error")
 
     async def _on_succeeded(self, client_id: str, credentials: Credentials) -> None:
         self._cancellable = False
 
-        def hand_the_token_back() -> None:
-            # The token is live and about to become unreachable — nothing will
-            # hold it, so nothing could revoke it later.
+        def revoke_token() -> None:
+            # The token is live and about to become unreachable — nothing will hold it, so
+            # nothing could revoke it later.
             revoke_best_effort(self.provider, client_id, credentials)
 
         tab_config = TabConfig(
@@ -507,7 +489,7 @@ class ConnectModal(ManagementScreen):
             self.display_name,
             tab_config,
             credentials,
-            on_store_failure=hand_the_token_back,
+            on_store_failure=revoke_token,
             warning=warning,
         )
 

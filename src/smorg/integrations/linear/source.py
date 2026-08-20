@@ -1,7 +1,4 @@
-"""Fetch issues from Linear's MCP endpoint and map them to typed items.
-
-Never formats. The panel decides how any of this looks.
-"""
+"""Fetch issues from Linear's MCP endpoint and map them to typed items."""
 
 from __future__ import annotations
 
@@ -17,51 +14,19 @@ from smorg.auth.store import Credentials
 from smorg.core.contract import Item, Malformed
 from smorg.core.mcp import McpSession
 from smorg.core.shape import optional_string, required_string, timestamp
-from smorg.core.text import capped, printable, printable_block
+from smorg.core.text import sanitize_block, sanitize_line, truncate
 
 ENDPOINT = "https://mcp.linear.app/mcp"
 
 # Linear embeds machine tags in descriptions and comment bodies, e.g.
-# <issue id="..." href="https://linear.app/...">ENG-123</issue>. Only these
-# four known names are touched, so unrelated angle-bracket text (a code
-# fence's own literal HTML, say) is left alone.
+# <issue id="..." href="https://linear.app/...">ENG-123</issue>. Only these four known names are
+# touched, so unrelated angle-bracket text (a code fence's own literal HTML, say) is left alone.
 _LINEAR_TAG_NAMES = ("issue", "user", "project", "document")
 _LINEAR_PAIRED_TAG = re.compile(
     r"<(" + "|".join(_LINEAR_TAG_NAMES) + r")\b([^>]*)>(.*?)</\1>", re.DOTALL
 )
 _LINEAR_LONE_TAG = re.compile(r"<(?:" + "|".join(_LINEAR_TAG_NAMES) + r")\b[^>]*/?>")
 _HREF_ATTR = re.compile(r'href="([^"]*)"')
-
-
-def _rewrite_paired_tag(match: re.Match[str]) -> str:
-    attributes = match.group(2)
-    inner = match.group(3)
-    href_match = _HREF_ATTR.search(attributes)
-    if href_match is None:
-        return inner
-    href = href_match.group(1)
-    # Only a well-formed https:// link becomes a markdown link — an http,
-    # javascript:, or otherwise unparseable href degrades to inner text only,
-    # same as a tag with no href at all.
-    parsed = urlsplit(href)
-    if parsed.scheme.lower() != "https" or not parsed.netloc:
-        return inner
-    return f"[{inner}]({href})"
-
-
-def _unwrap_linear_tags(text: str) -> str:
-    """Rewrite a paired tag carrying a usable https:// href into a markdown
-    link `[inner](href)`, keeping the inner text as the link label; a paired
-    tag with no href (or an unusable one) degrades to inner text only. A lone
-    opening or self-closing tag is deleted outright (a mention that lost its
-    label). Hand-typed references (e.g. a plain "CTRL-2" a person typed) never
-    match this pattern in the first place, so only Linear-inserted mentions
-    can ever become a link — that guarantee holds by construction, not by
-    checking who wrote the text.
-    """
-    rewritten = _LINEAR_PAIRED_TAG.sub(_rewrite_paired_tag, text)
-    return _LINEAR_LONE_TAG.sub("", rewritten)
-
 
 FIELDS = (
     "title",
@@ -73,9 +38,14 @@ FIELDS = (
     "priority",
 )
 
-ACTIVE_STATUS_TYPES = frozenset[str]({"started", "unstarted"})
+ACTIVE_STATUS_TYPES = frozenset({"started", "unstarted"})
 
 MAX_PAGES = 10
+
+COMMENT_LIMIT = 5
+COMMENTS_FETCH_LIMIT = 25
+DESCRIPTION_LIMIT = 50_000
+COMMENT_BODY_LIMIT = 10_000
 
 
 @dataclass(frozen=True)
@@ -85,12 +55,6 @@ class Issue(Item):
     status_type: str
     team: str
     priority: str
-
-
-COMMENT_LIMIT = 5
-COMMENTS_FETCH_LIMIT = 25
-DESCRIPTION_LIMIT = 50_000
-COMMENT_BODY_LIMIT = 10_000
 
 
 @dataclass(frozen=True)
@@ -105,7 +69,7 @@ class IssueDetail:
     description: str
     assignee: str
     comments: tuple[Comment, ...]
-    # Hidden comments are comments that were fetched but dropped past COMMENT_LIMIT.
+    # Comments that were fetched and dropped past COMMENT_LIMIT.
     hidden_comments: int = 0
     hidden_is_lower_bound: bool = False
 
@@ -140,7 +104,7 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[Issue, ...]:
     return tuple(newest_first)
 
 
-def _priority_name(raw: dict[str, Any]) -> str:
+def _priority_of(raw: dict[str, Any]) -> str:
     priority = raw.get("priority")
     if priority is None:
         return ""
@@ -160,13 +124,12 @@ def _issue_of(raw: Any) -> Issue:
         status=required_string(raw, "status"),
         status_type=required_string(raw, "statusType"),
         team=optional_string(raw, "team"),
-        priority=_priority_name(raw),
+        priority=_priority_of(raw),
     )
 
 
 def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> IssueDetail:
-    """The selected issue's expanded view: description, assignee, newest
-    comments (oldest first, so reading order matches the thread)."""
+    """The issue's expanded view: description, assignee, and the newest comments."""
     session = McpSession(ENDPOINT, credentials.access_token, http)
     issue_payload = session.call("get_issue", {"id": item.id})
     comments_payload = session.call(
@@ -175,30 +138,25 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Is
     raw_comments = comments_payload.get("comments")
     if not isinstance(raw_comments, list):
         raise Malformed("list_comments returned no comment list")
-    comments = sorted(
-        (_comment_of(raw) for raw in raw_comments), key=lambda comment: comment.created_at
-    )
+    all_comments = [_comment_of(raw) for raw in raw_comments]
+    oldest_first = sorted(all_comments, key=lambda comment: comment.created_at)
+    newest = oldest_first[-COMMENT_LIMIT:]
+    # Sanitize uncapped, then unwrap, then cap: unwrapping after capping could cut mid-tag and
+    # leave one of our own <issue>/<user>/... fragments dangling in what the panel renders.
+    sanitized = sanitize_block(optional_string(issue_payload, "description"), limit=None)
+    description = truncate(_unwrap_linear_tags(sanitized), DESCRIPTION_LIMIT)
     assignee = optional_string(issue_payload, "assignee")
-    # Sanitize uncapped, then unwrap, then cap: unwrapping after capping could
-    # cut mid-tag and leave one of our own <issue>/<user>/... fragments
-    # dangling in what the panel renders.
-    description = capped(
-        _unwrap_linear_tags(
-            printable_block(optional_string(issue_payload, "description"), limit=None)
-        ),
-        DESCRIPTION_LIMIT,
-    )
     if assignee:
-        assignee_name = printable(assignee)
+        assignee_name = sanitize_line(assignee)
     else:
         assignee_name = ""
+    more_on_server = bool(comments_payload.get("hasNextPage"))
     return IssueDetail(
         description=description,
         assignee=assignee_name,
-        comments=tuple(comments[-COMMENT_LIMIT:]),
+        comments=tuple(newest),
         hidden_comments=max(0, len(raw_comments) - COMMENT_LIMIT),
-        hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT
-        or bool(comments_payload.get("hasNextPage")),
+        hidden_is_lower_bound=len(raw_comments) >= COMMENTS_FETCH_LIMIT or more_on_server,
     )
 
 
@@ -210,12 +168,31 @@ def _comment_of(raw: Any) -> Comment:
         name = ""
     elif isinstance(author, dict):
         raw_name = optional_string(author, "name")
-        name = printable(raw_name) if raw_name else ""
+        name = sanitize_line(raw_name) if raw_name else ""
     else:
         raise Malformed(f"'author' was {type(author).__name__}, expected an object")
     created_at = timestamp(raw, "createdAt")
-    body = capped(
-        _unwrap_linear_tags(printable_block(required_string(raw, "body"), limit=None)),
-        COMMENT_BODY_LIMIT,
-    )
+    sanitized = sanitize_block(required_string(raw, "body"), limit=None)
+    body = truncate(_unwrap_linear_tags(sanitized), COMMENT_BODY_LIMIT)
     return Comment(author=name, body=body, created_at=created_at)
+
+
+def _unwrap_linear_tags(text: str) -> str:
+    """Paired tags carrying a usable https href become markdown links labeled with their inner
+    text; other paired tags degrade to the inner text alone, and lone tags are deleted.
+    """
+    rewritten = _LINEAR_PAIRED_TAG.sub(_rewrite_paired_tag, text)
+    return _LINEAR_LONE_TAG.sub("", rewritten)
+
+
+def _rewrite_paired_tag(match: re.Match[str]) -> str:
+    attributes = match.group(2)
+    inner = match.group(3)
+    href_match = _HREF_ATTR.search(attributes)
+    if href_match is None:
+        return inner
+    href = href_match.group(1)
+    parsed = urlsplit(href)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return inner
+    return f"[{inner}]({href})"

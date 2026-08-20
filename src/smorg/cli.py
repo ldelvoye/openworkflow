@@ -1,4 +1,4 @@
-"""Command line entry point: connect, status, logout."""
+"""Command line entry point: connect, status, logout, run."""
 
 from __future__ import annotations
 
@@ -44,8 +44,7 @@ def run_login(
     port: int = 0,
     timeout: float = LOGIN_TIMEOUT_SECONDS,
 ) -> tuple[str, Credentials]:
-    """Thin printing wrapper over perform_login: prints the same two lines
-    this command has always printed, delegates the rest."""
+    """perform_login plus the CLI's printed browser instructions."""
 
     def on_authorize_url(url: str) -> None:
         print("opening your browser to authorize smorg")
@@ -96,12 +95,8 @@ def _connect(integration_id: str) -> int:
         print(str(error), file=sys.stderr)
         return 1
 
-    save_config(
-        add_tab(
-            config,
-            TabConfig(integration=integration_id, client_id=client_id, connection=path.id),
-        )
-    )
+    tab_config = TabConfig(integration=integration_id, client_id=client_id, connection=path.id)
+    save_config(add_tab(config, tab_config))
     print(f"connected {integration.manifest.display_name} (scope: {credentials.scope})")
     return 0
 
@@ -111,17 +106,15 @@ def _connect_with_token(
 ) -> int:
     """Ask for a token the user created themselves and store it.
 
-    Re-running this is also the whole re-authentication story for a token
-    path: add_tab replaces the existing entry, and the new token overwrites
-    the old one in the store — which is what the "run: smorg connect" in an
-    expired tab's error is pointing at.
+    Running connect again is also how a token path re-authenticates: add_tab replaces the
+    existing entry and the new token overwrites the stored one, which is what an expired tab's
+    "run: smorg connect" hint points at.
     """
     display_name = integration.manifest.display_name
     print(f"{display_name} connects with a token you create yourself.")
     print(f"create one at: {prompt.help_url}")
     print(f"it needs: {prompt.scopes_hint}")
-    # getpass, not input: the token is a live credential and a terminal's
-    # scrollback outlives this command.
+    # getpass, not input: a live credential, and a terminal's scrollback outlives this command.
     entered = getpass(f"{prompt.label}: ")
     try:
         token = accepted_token(entered)
@@ -137,7 +130,8 @@ def _connect_with_token(
         print(str(error), file=sys.stderr)
         return 1
 
-    save_config(add_tab(config, TabConfig(integration=integration.manifest.id, connection=path.id)))
+    tab_config = TabConfig(integration=integration.manifest.id, connection=path.id)
+    save_config(add_tab(config, tab_config))
     print(f"connected {display_name}")
     return 0
 
@@ -145,8 +139,6 @@ def _connect_with_token(
 def _warn_on_extra_scopes(
     integration: Integration, provider: oauth.ProviderConfig, credentials: Credentials
 ) -> None:
-    """Say so when the provider granted more than was asked for. See
-    extra_scopes_warning for why this is worth a warning and not a refusal."""
     warning = extra_scopes_warning(
         integration.manifest.id, integration.manifest.display_name, provider, credentials
     )
@@ -154,15 +146,15 @@ def _warn_on_extra_scopes(
         print(f"warning: {warning}", file=sys.stderr)
 
 
-def _describe(credentials: Credentials) -> str:
+def _format_credentials(credentials: Credentials) -> str:
     if credentials.expires_at is None:
         expiry = "no expiry"
     elif credentials.is_expired(now()):
         expiry = "expired"
     else:
         expiry = f"expires {credentials.expires_at.isoformat(timespec='minutes')}"
-    # A pasted token carries no scope to report; naming an empty one would
-    # read as a token that was granted nothing.
+    # A pasted token carries no scope to report; naming an empty one would read as a token that
+    # was granted nothing.
     if not credentials.scope:
         return f"connected — {expiry}"
     return f"connected — scope {credentials.scope}, {expiry}"
@@ -187,13 +179,12 @@ def _status() -> int:
         if credentials is None:
             print(f"{tab.integration}: disconnected")
         else:
-            print(f"{tab.integration}: {_describe(credentials)}")
+            print(f"{tab.integration}: {_format_credentials(credentials)}")
     return 0
 
 
 def _logout(integration_id: str) -> int:
-    # A renderer over remove_integration: the helper does the deleting and
-    # reports what it found, this only chooses the words.
+    # remove_integration does the deleting and reports what it found; this only chooses the words.
     try:
         result = remove_integration(integration_id)
     except UnknownIntegration as error:
@@ -224,9 +215,7 @@ def _logout(integration_id: str) -> int:
 
 def _run() -> int:
     tabs = load_config().tabs
-    # Must happen before SmorgApp exists: once Textual's driver is running it
-    # owns stdin, and it has no notion of an OSC color-query response (see
-    # query_terminal_palette's docstring) — this is the only safe window.
+    # Must get palette before running SmorgApp.
     palette = query_terminal_palette()
     SmorgApp(tabs=tabs, palette=palette).run()
     return 0
@@ -257,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
             return _status()
         if args.command == "run":
             return _run()
+        assert args.command == "logout"
         return _logout(args.integration)
     except ConfigError as error:
         # The config file is documented as hand-editable, so a broken one is a

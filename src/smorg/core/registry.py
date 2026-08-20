@@ -10,8 +10,7 @@ class UnknownIntegration(Exception):
 
 
 def _by_id() -> dict[str, Integration]:
-    # Imported per call, not at module load, so tests can swap the allowlist
-    # without reloading this module.
+    # Imported per call, not at module load, so tests can swap the allowlist without reloading.
     from smorg import integrations
 
     registry: dict[str, Integration] = {}
@@ -25,14 +24,16 @@ def _by_id() -> dict[str, Integration]:
 
 def known_integration_ids() -> tuple[str, ...]:
     registry = _by_id()
-    return tuple[str, ...](sorted(registry))
+    return tuple(sorted(registry))
 
 
 def manifests() -> tuple[Manifest, ...]:
-    """Every registered manifest, sorted by id — the enumeration surface a
-    tab-management menu lists from."""
+    """Every registered manifest, sorted by id."""
     registry = _by_id()
-    return tuple[Manifest, ...](registry[identifier].manifest for identifier in sorted(registry))
+    ordered = []
+    for identifier in sorted(registry):
+        ordered.append(registry[identifier].manifest)
+    return tuple(ordered)
 
 
 def get_integration(integration_id: str) -> Integration:

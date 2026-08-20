@@ -1,8 +1,8 @@
 """The shared chrome every tab renders inside.
 
-Four states that must never look alike: a tab with nothing in it and a tab whose
-fetch failed are different facts, and a dashboard that blurs them cannot be
-trusted. Integrations override render_ready and inherit everything else.
+A tab with nothing in it and a tab whose fetch failed must never look alike, so the panel keeps
+an explicit state for each situation. Integrations override render_ready and inherit everything
+else.
 """
 
 from __future__ import annotations
@@ -23,13 +23,19 @@ from smorg.core.contract import Item
 from smorg.core.state import SeenState
 
 
+class PanelState(StrEnum):
+    LOADING = "loading"
+    READY = "ready"
+    EMPTY = "empty"
+    ERROR = "error"
+    STALE = "stale"
+
+
 def _scroll_indicators(scroll_y: float, max_scroll_y: float) -> tuple[bool, bool]:
-    """Which of the gutter's arrows should show: up when content is hidden
-    above the viewport, down when content is hidden below it."""
     return scroll_y > 0, scroll_y < max_scroll_y
 
 
-def _gutter_text(scroll_y: float, max_scroll_y: float, height: int) -> Text:
+def _format_gutter(scroll_y: float, max_scroll_y: float, height: int) -> Text:
     show_up, show_down = _scroll_indicators(scroll_y, max_scroll_y)
     lines = [" "] * max(height, 0)
     if lines and show_up:
@@ -39,20 +45,12 @@ def _gutter_text(scroll_y: float, max_scroll_y: float, height: int) -> Text:
     return Text("\n".join(lines), style="dim")
 
 
-class PanelState(StrEnum):
-    LOADING = "loading"
-    READY = "ready"
-    EMPTY = "empty"
-    ERROR = "error"
-    STALE = "stale"
-
-
 class _PanelBody(Static):
     """Draws the panel's list and state text; owns no state of its own."""
 
     def __init__(self, panel: Panel) -> None:
-        # markup off: message may carry server-controlled text, so a
-        # provider can't style, hide, or garble the panel via Rich markup.
+        # markup off: message may carry server-controlled text, so a provider can't style, hide,
+        # or garble the panel via Rich markup.
         super().__init__(markup=False, id="body")
         self._panel = panel
 
@@ -63,10 +61,7 @@ class _PanelBody(Static):
 
 
 class _DetailGutter(Static):
-    """A permanently reserved width-1 column docked to the right of the
-    detail scroll container. Its width never changes whether an arrow is
-    showing or not, so the detail text next to it never reflows.
-    """
+    """1-width column on the right of the detail scroll container"""
 
     DEFAULT_CSS = """
     _DetailGutter { dock: right; width: 1; height: 1fr; }
@@ -78,8 +73,6 @@ class _DetailGutter(Static):
     def on_mount(self) -> None:
         region = self.parent
         if isinstance(region, VerticalScroll):
-            # scroll_y belongs to the scroll container, not this widget —
-            # DOMNode.watch() is how to watch a reactive on another node.
             self.watch(region, "scroll_y", self.refresh_arrows, init=False)
         self.refresh_arrows()
 
@@ -87,20 +80,14 @@ class _DetailGutter(Static):
         self.refresh_arrows()
 
     def refresh_arrows(self, *_: object) -> None:
-        """Redraw from the scroll container's current position. Called on
-        scroll and on resize; Panel also calls this after the detail content
-        changes, since that can move max_scroll_y without moving scroll_y."""
         region = self.parent
         if not isinstance(region, VerticalScroll):
             return
-        self.update(_gutter_text(region.scroll_y, region.max_scroll_y, self.size.height))
+        self.update(_format_gutter(region.scroll_y, region.max_scroll_y, self.size.height))
 
 
 class Panel(Vertical):
     class DetailRequested(Message):
-        """A panel asked the shell to fetch one item's detail on its behalf —
-        the panel itself never talks to the network."""
-
         def __init__(self, panel: Panel, item: Item) -> None:
             super().__init__()
             self.panel = panel
@@ -129,9 +116,6 @@ class Panel(Vertical):
         self.items: tuple[Item, ...] = ()
         self.message = ""
         self.as_of: datetime | None = None
-        # Set for real once the shell knows which integration owns this tab
-        # (see SmorgApp._panel_for/on_mount) — empty/unloaded defaults here
-        # only so a bare Panel() is never missing the attributes outright.
         self.seen = SeenState({})
         self.integration_id = ""
         self.detail_open = False
@@ -158,14 +142,12 @@ class Panel(Vertical):
     def ready_text(self) -> str:
         """Same view as `render_ready()` but flattened to plain text.
 
-        Override it alongside any `render_ready()` that returns is not a Text, such as a grid.
+        Override it alongside any `render_ready()` that does not return a Text, such as a grid.
         """
         return "\n".join(item.id for item in self.items)
 
     @staticmethod
     def detail_key(item: Item) -> tuple[str, str]:
-        # updated_at is part of the key so an issue that moved on refetches
-        # instead of showing a stale cached detail.
         return (item.id, item.updated_at.isoformat())
 
     def selected_item(self) -> Item | None:
@@ -176,54 +158,35 @@ class Panel(Vertical):
         """Overridden by an integration. The base names the item only."""
         return Text(item.id)
 
-    def detail_showing(self, item: Item) -> bool:
-        """Whether the detail region is open and currently showing exactly
-        this item — the "having looked at it" signal an integration's own
-        seen-marking hooks into, without reaching into `_detail_target`."""
+    def is_detail_showing(self, item: Item) -> bool:
         return self.detail_open and self._detail_target == self.detail_key(item)
 
     def mark_seen(self, item: Item) -> None:
-        """Mark `item` seen and persist it.
-
-        A save failure notifies instead of crashing — the mark above already
-        took effect in memory, so the panel keeps running either way.
-        """
         self.seen.mark_seen(self.integration_id, item)
-        try:
-            self.seen.save()
-        except (ConfigError, OSError) as error:
-            self.notify(str(error), severity="error")
+        self._save_seen()
         self.refresh()
 
     def mark_all_seen(self) -> None:
-        """Mark every currently-shown item seen and persist it in one stroke.
-
-        A save failure notifies instead of crashing — the marks above already
-        took effect in memory, so the panel keeps running either way.
-        """
+        """Mark every currently-shown item seen and persist them."""
         self.seen.mark_all_seen(self.integration_id, self.items)
-        try:
-            self.seen.save()
-        except (ConfigError, OSError) as error:
-            self.notify(str(error), severity="error")
+        self._save_seen()
         self.refresh()
 
     def mark_unseen(self) -> None:
-        """Return the selected item's change mark and persist it; a panel
-        with no selection marks nothing.
-
-        A save failure notifies instead of crashing — the mark above already
-        took effect in memory, so the panel keeps running either way.
-        """
         item = self.selected_item()
         if item is None:
             return
         self.seen.mark_unseen(self.integration_id, item)
+        self._save_seen()
+        self.refresh()
+
+    def _save_seen(self) -> None:
+        # A save failure notifies instead of crashing: the marks already took effect in memory,
+        # so the panel keeps running either way.
         try:
             self.seen.save()
         except (ConfigError, OSError) as error:
             self.notify(str(error), severity="error")
-        self.refresh()
 
     def action_toggle_detail(self) -> None:
         item = self.selected_item()
@@ -260,12 +223,9 @@ class Panel(Vertical):
         self._refresh_detail()
 
     def prune_detail_cache(self) -> None:
-        """Drop cached detail/errors for items no longer in self.items.
+        """Drop cached detail/errors for items no longer in `self.items`.
 
-        Call after assigning fresh items, so stale keys don't accumulate. The
-        open target is kept regardless — its key can change on refresh (it
-        includes updated_at), and losing it would blank an open pane back to
-        loading with nothing pending to fill it.
+        Call after assigning fresh items, so stale keys don't accumulate.
         """
         live_keys = {self.detail_key(item) for item in self.items}
         if self._detail_target is not None:
@@ -283,7 +243,7 @@ class Panel(Vertical):
         if self.detail_open and self.is_mounted:
             self.query_one("#detail", VerticalScroll).scroll_relative(y=1, animate=False)
 
-    def _detail_renderable(self) -> RenderableType:
+    def _format_detail(self) -> RenderableType:
         item = self.selected_item()
         if item is None or not self.detail_open:
             return Text()
@@ -301,20 +261,19 @@ class Panel(Vertical):
             return
         region = self.query_one("#detail", VerticalScroll)
         region.set_class(self.detail_open, "-open")
-        self.query_one("#detail-content", Static).update(self._detail_renderable())
-        # Only reset scroll when the shown subject changes — Panel.refresh()
-        # runs for unrelated reasons too (shell repaints, focus regain), and
-        # resetting on every one would wipe an unread mid-scroll.
+        self.query_one("#detail-content", Static).update(self._format_detail())
+        # Only reset scroll when the shown subject changes. Panel.refresh() also runs for
+        # unrelated reasons (shell repaints, focus regain), and resetting on every one would
+        # throw away the reader's scroll position.
         item = self.selected_item()
         anchor = (self.detail_open, self.detail_key(item) if item is not None else None)
         if anchor != self._detail_anchor:
             self._detail_anchor = anchor
             region.scroll_home(animate=False)
-        # Content changing can move max_scroll_y without moving scroll_y
-        # (e.g. "loading…" replaced by real detail), which the gutter's
-        # scroll_y watcher would miss — nudged explicitly here, deferred to
-        # after the next refresh since virtual_size isn't recomputed until
-        # layout runs.
+        # New content can move max_scroll_y without moving scroll_y (for example "loading…"
+        # replaced by the real detail), and the gutter only watches scroll_y, so its arrows are
+        # refreshed explicitly. Deferred until after the next refresh because virtual_size is
+        # only recomputed when layout runs.
         self.call_after_refresh(self.query_one(_DetailGutter).refresh_arrows)
 
     def body_text(self) -> str:
@@ -332,8 +291,7 @@ class Panel(Vertical):
     def refresh(
         self, *regions, repaint: bool = True, layout: bool = False, recompose: bool = False
     ):
-        # Repaints the body child (which caches its own render) and the
-        # detail region's cache/hint view.
+        # Repaints the body child (which caches its own render) and the detail region's view.
         if self.is_mounted:
             self.query_one("#body", Static).refresh(repaint=repaint, layout=layout)
             self._refresh_detail()

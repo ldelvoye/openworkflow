@@ -2,7 +2,7 @@
 
 An integration supplies a ProviderConfig and gets Credentials back; nothing here
 knows which service is on the other end. Registration asks for a public client,
-so no client secret exists anywhere in this flow — PKCE is what binds the
+so no client secret exists anywhere in this flow; PKCE is what binds the
 authorization code to the process that requested it.
 """
 
@@ -76,8 +76,8 @@ class ServerMetadata:
 def _json_object(response: httpx.Response, source: str) -> JsonObject:
     """Decode a response body that must be a JSON object.
 
-    A 200 carrying something else is routine in the wild — a proxy or captive
-    portal answering with HTML — so it has to surface as OAuthError like every
+    A 200 carrying something else is routine in the wild (a proxy or captive
+    portal answering with HTML), so it has to surface as OAuthError like every
     other failure here, not as a decoder traceback.
     """
     try:
@@ -93,7 +93,7 @@ def _require_https(url: str, name: str) -> str:
     """Refuse a plaintext endpoint named by a metadata document.
 
     Endpoints inside the (TLS-verified) metadata are still whatever the
-    provider wrote — an http token endpoint would otherwise POST a refresh
+    provider wrote; an http token endpoint would otherwise POST a refresh
     token in the clear. The loopback redirect is exempt; it never reaches
     this check.
     """
@@ -288,12 +288,12 @@ def extra_scopes_warning(
 ) -> str | None:
     """None when the provider granted nothing beyond what was requested.
 
-    A warning, not a refusal — every call site is read-only, so an
+    A warning, not a refusal: every call site is read-only, so an
     over-scoped token's only cost is being a bigger prize if stolen. Shared
     text so a CLI print and a TUI toast never drift apart.
     """
-    granted = set[str](credentials.scope.split())
-    requested = set[str](provider.scopes)
+    granted = set(credentials.scope.split())
+    requested = set(provider.scopes)
     extra = sorted(granted - requested)
     if not extra:
         return None
