@@ -23,7 +23,7 @@ TOKEN = TokenPrompt(
     help_url="https://github.com/settings/personal-access-tokens",
     scopes_hint=(
         "read access to Pull requests and Metadata (fine-grained), "
-        "or the repo and read:org scopes (classic)"
+        "or repo:all and read:org scopes (classic)"
     ),
 )
 
