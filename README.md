@@ -12,11 +12,19 @@ line.
 
 ## Install
 
-Not published to PyPI yet. From a checkout:
+One-off run, no install:
 
-    uv run smorg run
+    uvx smorg
 
-Then press `^ + p` and pick "Add integration" to connect one, then select the
+That first run installs the package before the screen paints, so expect a
+brief blank terminal.
+
+To install it once and reuse it:
+
+    uv tool install smorg
+    smorg
+
+Press `^ + p` and pick "Add integration" to connect one, then select the
 desired connection method.
 
 `smorg connect <integration>` does the same from the CLI, and is also how you
@@ -24,9 +32,6 @@ re-authenticate a tab whose token has expired or been revoked
 
 `smorg logout <integration>` (or "Remove integration" from `^ + p`) removes a tab,
 its stored token, and its seen marks.
-
-Once released, `uvx smorg` will fetch and run it directly. That first run
-installs the package before the screen paints, so expect a brief blank terminal.
 
 Inside the dashboard: `h`/`l` switch tabs, `up`/`down` select an item, `o`
 opens it in your browser, `r` refreshes, `m` marks the tab's changes seen,

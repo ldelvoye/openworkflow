@@ -258,7 +258,7 @@ def _run() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smorg")
     parser.add_argument("--version", action="version", version=f"smorg {__version__}")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     connect = subparsers.add_parser("connect", help="authenticate an integration")
     connect.add_argument("integration")
@@ -270,16 +270,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     logout.add_argument("integration")
 
-    subparsers.add_parser("run", help="open the dashboard")
+    subparsers.add_parser("run", help="open the dashboard; the default when no command is given")
 
     args = parser.parse_args(argv)
     try:
+        if args.command is None or args.command == "run":
+            return _run()
         if args.command == "connect":
             return _connect(args.integration)
         if args.command == "status":
             return _status()
-        if args.command == "run":
-            return _run()
         assert args.command == "logout"
         return _logout(args.integration)
     except ConfigError as error:
