@@ -16,7 +16,7 @@ class ShellSetup:
 
     rc_file: Path
     line: str
-    
+
 
 def bin_dir_needing_setup() -> Path | None:
     """The directory to add to PATH so `smorg` resolves by name, or None if nothing to do."""
