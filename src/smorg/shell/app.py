@@ -16,7 +16,7 @@ from textual.command import CommandPalette
 from textual.screen import Screen
 from textual.widgets import Footer, Static, TabbedContent, TabPane
 
-from smorg import __version__
+from smorg import __version__, is_dev_build
 from smorg.auth.refresh import credentials_for
 from smorg.auth.store import CredentialStoreError, now
 from smorg.core.config import TabConfig, resolve_connection
@@ -78,7 +78,18 @@ def _format_fetch_error(error: Exception, integration_id: str) -> str:
 
 class SmorgApp(App[None]):
     CSS = """
-    Screen { layout: vertical; layers: base refresh-indicator; }
+    Screen { layout: vertical; layers: base refresh-indicator dev-badge; }
+
+    /* Docked (not laid out), so it never reflows the tab bar it sits on top of. */
+    #dev-badge {
+        layer: dev-badge;
+        dock: right;
+        width: auto;
+        height: 1;
+        background: $primary;
+        color: $text;
+        padding: 0 1;
+    }
 
     /* Textual pins Toast's :ansi background to literal ansi_black via
      * $ansi-background — a dark box on light terminals. ansi_default tracks the
@@ -178,6 +189,8 @@ class SmorgApp(App[None]):
                 with TabPane(tab, id=tab):
                     yield self._build_panel(tab)
         yield hint
+        if is_dev_build():
+            yield Static("dev", id="dev-badge", markup=False)
         yield RefreshIndicator()
         yield Footer()
 
