@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,7 @@ from smorg.auth.store import (
     get_credentials,
     set_credentials,
 )
-from smorg.cli import main
+from smorg.cli import _offer_path_setup, main
 from smorg.core.config import Config, TabConfig, load_config, save_config
 from smorg.core.registry import known_integration_ids
 
@@ -239,3 +240,87 @@ def test_status_of_a_token_tab_names_no_scope(pasting, capsys):
 
     out = capsys.readouterr().out
     assert "github: connected — no expiry" in out
+
+
+# --- Offering to add the running executable's directory to PATH ---
+
+
+class _FakeTTY:
+    """A stdin/stdout stand-in that reports as a real terminal and records what's written to it."""
+
+    def __init__(self) -> None:
+        self.written = ""
+
+    def isatty(self) -> bool:
+        return True
+
+    def write(self, data: str) -> None:
+        self.written += data
+
+    def flush(self) -> None:
+        pass
+
+
+def _prepare_not_on_path(monkeypatch, tmp_path):
+    """A `smorg` executable that isn't resolvable by name, with zsh as the shell.
+
+    Returns the bin directory that needs adding to PATH and the fake stdout `_offer_path_setup`
+    will print to. Patches sys.stdin/sys.stdout itself rather than through a fixture: pytest's
+    capture machinery swaps those objects again at the setup-to-call phase boundary, which would
+    silently discard a patch applied from fixture setup.
+    """
+    monkeypatch.setattr("sys.stdin", _FakeTTY())
+    stdout = _FakeTTY()
+    monkeypatch.setattr("sys.stdout", stdout)
+    monkeypatch.setattr("smorg.core.path_setup.shutil.which", lambda name: None)
+
+    executable = tmp_path / "opt" / "smorg" / "bin" / "smorg"
+    executable.parent.mkdir(parents=True)
+    executable.write_text("")
+    monkeypatch.setattr("smorg.core.path_setup.sys.argv", [str(executable)])
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    return executable.parent, stdout
+
+
+def test_offer_path_setup_yes_appends_the_export_line(monkeypatch, tmp_path):
+    bin_dir, stdout = _prepare_not_on_path(monkeypatch, tmp_path)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+
+    _offer_path_setup()
+
+    rc_file = Path.home() / ".zshrc"
+    assert rc_file.read_text() == f'export PATH="{bin_dir}:$PATH"\n'
+    assert "restart your shell" in stdout.written
+
+
+def test_offer_path_setup_no_leaves_the_rc_file_untouched(monkeypatch, tmp_path):
+    _prepare_not_on_path(monkeypatch, tmp_path)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+    _offer_path_setup()
+
+    rc_file = Path.home() / ".zshrc"
+    assert not rc_file.exists()
+
+
+def test_offer_path_setup_yes_reports_a_write_failure_instead_of_crashing(monkeypatch, tmp_path):
+    """append_once can raise OSError (an unwritable rc file); nothing above _offer_path_setup
+    catches it, so it must handle its own failure rather than let it crash the CLI before the
+    dashboard opens.
+    """
+    _prepare_not_on_path(monkeypatch, tmp_path)
+    monkeypatch.setattr("builtins.input", lambda prompt: "y")
+    stderr = _FakeTTY()
+    monkeypatch.setattr("sys.stderr", stderr)
+
+    tmp_path.chmod(0o500)  # HOME, and so the .zshrc directory: read/execute only, no write
+    try:
+        _offer_path_setup()
+    finally:
+        tmp_path.chmod(0o700)
+
+    rc_file = Path.home() / ".zshrc"
+    assert not rc_file.exists()
+    assert "could not write" in stderr.written

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from getpass import getpass
 
@@ -31,6 +32,7 @@ from smorg.core.config import (
     tab_for,
 )
 from smorg.core.contract import ConnectionPath, Integration
+from smorg.core.path_setup import append_once, bin_dir_needing_setup, shell_setup
 from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
 from smorg.core.removal import remove_integration, revoke_best_effort
 from smorg.shell.app import SmorgApp
@@ -213,7 +215,39 @@ def _logout(integration_id: str) -> int:
     return 0
 
 
+def _offer_path_setup() -> None:
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+
+    binary_directory = bin_dir_needing_setup()
+    if binary_directory is None:
+        return
+
+    print(f"{binary_directory} is not on PATH, so the `smorg` command won't work by name.")
+    setup = shell_setup(os.environ.get("SHELL", ""), binary_directory)
+    if setup is None:
+        print("add this to your shell config yourself:")
+        print(f'  export PATH="{binary_directory}:$PATH"')
+        return
+
+    answer = input(f"add `{setup.line}` to {setup.rc_file}? [y/N] ")
+    if answer.strip().lower() not in ("y", "yes"):
+        return
+
+    try:
+        wrote = append_once(setup.rc_file, setup.line)
+    except OSError as error:
+        print(f"could not write to {setup.rc_file}: {error}", file=sys.stderr)
+        return
+
+    if wrote:
+        print(f"added to {setup.rc_file}. restart your shell to pick it up.")
+    else:
+        print(f"already present in {setup.rc_file}. restart your shell to pick it up.")
+
+
 def _run() -> int:
+    _offer_path_setup()
     tabs = load_config().tabs
     # Must get palette before running SmorgApp.
     palette = query_terminal_palette()

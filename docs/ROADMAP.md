@@ -5,7 +5,7 @@ What's ahead, as feature sets per release. Design history lives in git;
 
 ## v1.2.0 — setup and open-source release
 
-- PATH setup: when `oflow` is not on PATH, prompt the user and set it up
+- PATH setup: when `smorg` is not on PATH, prompt the user and set it up
 - Publish to PyPI so `uvx smorg` works (includes CI release flow)
 - On startup, check if update is available, and offer one click upgrade
 - `SECURITY.md`
