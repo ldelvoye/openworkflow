@@ -1,3 +1,4 @@
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from smorg.shell.menu import (
     RemoveConfirmModal,
     RemoveIntegrationList,
     TokenModal,
+    _upgrade_failure_toast,
     addable_integrations,
     connect_screen_for,
     removable_tabs,
@@ -852,3 +854,139 @@ async def test_a_store_that_refuses_a_token_records_no_tab(registered, monkeypat
 
     assert load_config().tabs == ()
     assert notified == ["keychain refused"]
+
+
+# --- The top-level "Upgrade smorg" command ---
+
+
+@pytest.mark.asyncio
+async def test_the_upgrade_command_is_offered_only_when_an_update_is_known():
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        provider = MenuCommands(pilot.app.screen)
+        hits = [hit async for hit in provider.discover()]
+        assert "Upgrade smorg to 9.9.9" not in [hit.text for hit in hits]
+
+        app.available_update = "9.9.9"
+        hits = [hit async for hit in provider.discover()]
+
+    assert "Upgrade smorg to 9.9.9" in [hit.text for hit in hits]
+
+
+@pytest.mark.asyncio
+async def test_selecting_the_upgrade_entry_with_no_known_install_method_toasts_and_runs_nothing(
+    monkeypatch,
+):
+    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: None)
+    run_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "smorg.shell.menu.subprocess.run",
+        lambda argv, **kwargs: run_calls.append(argv),
+    )
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.available_update = "9.9.9"
+        provider = MenuCommands(pilot.app.screen)
+        hits = [hit async for hit in provider.discover()]
+        upgrade_hit = next(hit for hit in hits if hit.text == "Upgrade smorg to 9.9.9")
+
+        upgrade_hit.command()
+        await pilot.pause()
+
+    assert run_calls == []
+    assert notified == [
+        "smorg can't tell how it was installed — upgrade to 9.9.9 with your own package manager"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_selecting_the_upgrade_entry_runs_the_detected_command_and_toasts_on_success(
+    monkeypatch,
+):
+    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: "uv tool upgrade smorg")
+    run_calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        run_calls.append(argv)
+        return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("smorg.shell.menu.subprocess.run", fake_run)
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.available_update = "9.9.9"
+        provider = MenuCommands(pilot.app.screen)
+        hits = [hit async for hit in provider.discover()]
+        upgrade_hit = next(hit for hit in hits if hit.text == "Upgrade smorg to 9.9.9")
+
+        upgrade_hit.command()
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert run_calls == [["uv", "tool", "upgrade", "smorg"]]
+    assert notified == ["upgraded — restart smorg to use 9.9.9"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_upgrade_toasts_the_command_and_a_stderr_tail(monkeypatch):
+    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: "uv tool upgrade smorg")
+
+    def fake_run(argv, **kwargs):
+        stderr = "Resolving dependencies...\nerror: no such package: smorg\n"
+        return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr=stderr)
+
+    monkeypatch.setattr("smorg.shell.menu.subprocess.run", fake_run)
+    notified: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append((message, kwargs.get("severity"))),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.available_update = "9.9.9"
+        provider = MenuCommands(pilot.app.screen)
+        hits = [hit async for hit in provider.discover()]
+        upgrade_hit = next(hit for hit in hits if hit.text == "Upgrade smorg to 9.9.9")
+
+        upgrade_hit.command()
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+    assert notified == [
+        ("uv tool upgrade smorg failed: error: no such package: smorg", "error"),
+    ]
+
+
+def test_upgrade_failure_toast_uses_the_last_stderr_line():
+    stderr = "Resolving dependencies...\nerror: no such package: smorg\n"
+    message = _upgrade_failure_toast("uv tool upgrade smorg", stderr)
+
+    assert message == "uv tool upgrade smorg failed: error: no such package: smorg"
+
+
+def test_upgrade_failure_toast_truncates_a_long_tail():
+    message = _upgrade_failure_toast("uv tool upgrade smorg", "x" * 200)
+
+    assert message.startswith("uv tool upgrade smorg failed: ")
+    assert "(truncated)" in message
+
+
+def test_upgrade_failure_toast_falls_back_when_stderr_is_empty():
+    message = _upgrade_failure_toast("uv tool upgrade smorg", "")
+
+    assert message == "uv tool upgrade smorg failed: (unspecified)"
