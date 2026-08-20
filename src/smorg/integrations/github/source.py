@@ -116,7 +116,9 @@ def _message_of(error: GithubException) -> str:
 
 
 def _translated(error: GithubException) -> IntegrationError:
-    """Translate `GithubException` to `IntegrationError`"""
+    """The IntegrationError matching what would fix the failure: a new
+    token (401), access granted (403), a corrected query (422), or waiting
+    (any other status)."""
     if error.status == 401:
         return AuthExpired("GitHub rejected the stored token; it may have expired or been revoked")
     if error.status == 403:
@@ -183,12 +185,12 @@ def fetch(credentials: Credentials, http: httpx.Client) -> tuple[PullRequest, ..
     with _client(credentials) as client:
         for category, qualifiers in QUERIES:
             for result in _search(client, f"{BASE_QUERY} {qualifiers}"):
-                pull = _pull_request_of(result, category)
+                pr = _pull_request_of(result, category)
                 # setdefault, not assignment: QUERIES is in precedence order, so
                 # the first category to claim a pull request keeps it.
-                found.setdefault(pull.id, pull)
-    newest_first = sorted(found.values(), key=lambda pull: pull.updated_at, reverse=True)
-    return tuple[PullRequest](newest_first)
+                found.setdefault(pr.id, pr)
+    newest_first = sorted(found.values(), key=lambda pr: pr.updated_at, reverse=True)
+    return tuple(newest_first)
 
 
 def _first[T: GithubObject](results: PaginatedList[T], limit: int) -> list[T]:
@@ -220,7 +222,7 @@ def _moment_of(value: object, field: str) -> datetime:
 
 
 def _repository_of(repository_url: str) -> str:
-    """Returns the `owner/name` of a repository."""
+    """The `owner/name` of a repository."""
     marker = "/repos/"
     path = urlsplit(repository_url).path
     if marker not in path:
@@ -232,7 +234,7 @@ def _repository_of(repository_url: str) -> str:
 
 
 def _author_of(result: IssueSearchResult) -> str:
-    """Returns the login of whoever opened the pull request, or "" for a deleted account."""
+    """The login of whoever opened the pull request, or "" for a deleted account."""
     user = result.user
     if user is None:
         return ""
@@ -269,19 +271,17 @@ def fetch_detail(credentials: Credentials, http: httpx.Client, item: Item) -> Pu
     if not isinstance(item, PullRequest):
         raise Malformed(f"expected a pull request, got {type(item).__name__}")
     with _client(credentials, lazy=True) as client, _github_errors():
-        # The repository is addressed by name and nothing here reads its
-        # payload, so a lazy client costs no request for it.
         repository = client.get_repo(item.repository)
-        pull = repository.get_pull(item.number)
-        raw_reviews = _first(pull.get_reviews(), REVIEWS_FETCH_LIMIT)
+        pr = repository.get_pull(item.number)
+        raw_reviews = _first(pr.get_reviews(), REVIEWS_FETCH_LIMIT)
         all_reviews = [_review_of(raw) for raw in raw_reviews]
         oldest_first = sorted(all_reviews, key=_submitted_order)
         newest = oldest_first[-REVIEW_LIMIT:]
         return PullRequestDetail(
-            body=_body_of(pull),
-            base=printable(pull.base.ref if pull.base else ""),
-            head=printable(pull.head.ref if pull.head else ""),
-            reviews=tuple[Review](newest),
+            body=_body_of(pr),
+            base=printable(pr.base.ref if pr.base else ""),
+            head=printable(pr.head.ref if pr.head else ""),
+            reviews=tuple(newest),
             hidden_reviews=max(0, len(raw_reviews) - REVIEW_LIMIT),
             hidden_is_lower_bound=len(raw_reviews) >= REVIEWS_FETCH_LIMIT,
         )
@@ -294,16 +294,16 @@ def _submitted_order(review: Review) -> datetime:
     return review.submitted_at
 
 
-def _body_of(pull: GithubPullRequest) -> str:
-    """Returns the description, sanitized and capped, or "" if there is none."""
-    raw = pull.body
+def _body_of(pr: GithubPullRequest) -> str:
+    """The description, sanitized and capped, or "" if there is none."""
+    raw = pr.body
     if not isinstance(raw, str):
         return ""
     return capped(printable_block(raw, limit=None), BODY_LIMIT)
 
 
 def _review_of(raw: PullRequestReview) -> Review:
-    """Returns a typed Review; anything GitHub omitted degrades to "" or None."""
+    """A typed Review; anything GitHub omitted degrades to "" or None."""
     author = raw.user
     if author is None or not isinstance(author.login, str):
         name = ""

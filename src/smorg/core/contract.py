@@ -74,7 +74,7 @@ class Manifest:
         duplicates = _duplicates(keys)
         if duplicates:
             raise ValueError(f"duplicate action key(s) in {self.id}: {duplicates}")
-        reserved = sorted(set[str](keys) & RESERVED_KEYS)
+        reserved = sorted(set(keys) & RESERVED_KEYS)
         if reserved:
             raise ValueError(
                 f"{self.id} binds reserved shell key(s) {reserved}; "
@@ -108,7 +108,7 @@ class IntegrationError(Exception):
 
 
 class AccessNotAllowed(IntegrationError):
-    """Credentials (usually from token-based auth) is not allowed access to the requested data.
+    """Credentials (usually from token-based auth) are not allowed access to the requested data.
     Last-good data is kept and no re-connect is offered.
     """
 

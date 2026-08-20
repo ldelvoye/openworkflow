@@ -19,12 +19,22 @@ from smorg.shell.format import age
 from smorg.shell.markdown import Markdown
 from smorg.shell.panel import Panel
 
-CHANGED_MARK = "●"
-CHANGE_STYLE = "green"
-SELECTED_MARK = "▸"
-EMPTY_SECTION = "  —"
+_CHANGED_MARK = "●"
+_SELECTED_MARK = "▸"
+_EMPTY_SECTION = "  —"
 
-COLUMNS: tuple[tuple[str, tuple[Category, ...]], ...] = (
+_CHANGE_STYLE = "green"
+_COLUMN_TITLE_STYLE = "bold underline"
+_CATEGORY_STYLES = {
+    Category.NEEDS_YOUR_REVIEW: "bold red",
+    Category.NEEDS_TEAM_REVIEW: "bold",
+    Category.DRAFT: "bold",
+    Category.WAITING: "bold yellow",
+    Category.NEEDS_ACTION: "bold red",
+    Category.READY_TO_MERGE: "bold green",
+}
+
+_COLUMNS: tuple[tuple[str, tuple[Category, ...]], ...] = (
     (
         "review inbox",
         (Category.NEEDS_YOUR_REVIEW, Category.NEEDS_TEAM_REVIEW),
@@ -35,23 +45,12 @@ COLUMNS: tuple[tuple[str, tuple[Category, ...]], ...] = (
     ),
 )
 
-COLUMN_TITLE_STYLE = "bold underline"
-
-_CATEGORY_STYLES = {
-    Category.NEEDS_YOUR_REVIEW: "bold red",
-    Category.NEEDS_TEAM_REVIEW: "bold",
-    Category.DRAFT: "bold",
-    Category.WAITING: "bold yellow",
-    Category.NEEDS_ACTION: "bold red",
-    Category.READY_TO_MERGE: "bold green",
-}
-
 Section = tuple[Category, tuple[PullRequest, ...]]
 
 
-def _format_heading(category: Category, pulls: tuple[PullRequest, ...]) -> str:
+def _format_heading(category: Category, prs: tuple[PullRequest, ...]) -> str:
     """NEEDS_YOUR_REVIEW and three pull requests -> "needs your review (3)" """
-    return f"{category} ({len(pulls)})"
+    return f"{category} ({len(prs)})"
 
 
 def _format_review_label(state: str) -> str:
@@ -86,52 +85,52 @@ class GitHubPanel(Panel):
         super().__init__()
         self.column = 0
         # One cursor per column, so switching back returns to where you were.
-        self.cursors = [0 for _ in COLUMNS]
+        self.cursors = [0 for _ in _COLUMNS]
 
     def _sections(self, column: int) -> tuple[Section, ...]:
         """This column's categories with their pull requests."""
-        _, categories = COLUMNS[column]
+        _, categories = _COLUMNS[column]
         grouped: dict[Category, list[PullRequest]] = {category: [] for category in categories}
         for pr in self.items:
             if isinstance(pr, PullRequest) and pr.category in grouped:
                 grouped[pr.category].append(pr)
         sections: list[Section] = []
         for category in categories:
-            prs = tuple[PullRequest, ...](grouped[category])
+            prs = tuple(grouped[category])
             sections.append((category, prs))
-        return tuple[Section, ...](sections)
+        return tuple(sections)
 
     def _ordered(self, column: int) -> tuple[PullRequest, ...]:
         """This column's pull requests as one ordered sequence (newest first)."""
         ordered: list[PullRequest] = []
         for _, prs in self._sections(column):
             ordered.extend(prs)
-        return tuple[PullRequest, ...](ordered)
+        return tuple(ordered)
 
-    def _clamped_cursor(self, row_count: int) -> int:
-        return min(self.cursors[self.column], row_count - 1)
+    def _clamped_cursor(self, column: int, row_count: int) -> int:
+        return min(self.cursors[column], row_count - 1)
 
     def selected_item(self) -> PullRequest | None:
         ordered = self._ordered(self.column)
         if not ordered:
             return None
-        index = self._clamped_cursor(len(ordered))
+        index = self._clamped_cursor(self.column, len(ordered))
         return ordered[index]
 
     def selected_url(self) -> str | None:
-        pull = self.selected_item()
-        return pull.url if pull is not None else None
+        pr = self.selected_item()
+        return pr.url if pr is not None else None
 
     def render_ready(self) -> RenderableType:
         grid = Table.grid(expand=True, padding=(0, 2))
-        for _ in COLUMNS:
+        for _ in _COLUMNS:
             grid.add_column(ratio=1)
-        grid.add_row(*(self._format_column(column_index) for column_index in range(len(COLUMNS))))
+        grid.add_row(*(self._format_column(column_index) for column_index in range(len(_COLUMNS))))
         return grid
 
     def ready_text(self) -> str:
         lines: list[str] = []
-        for column, (title, _) in enumerate(COLUMNS):
+        for column, (title, _) in enumerate(_COLUMNS):
             if lines:
                 lines.append("")
             lines.append(title)
@@ -140,8 +139,8 @@ class GitHubPanel(Panel):
         return "\n".join(lines)
 
     def _format_column(self, column: int) -> RenderableType:
-        title, _ = COLUMNS[column]
-        parts: list[RenderableType] = [Text(title, style=COLUMN_TITLE_STYLE)]
+        title, _ = _COLUMNS[column]
+        parts: list[RenderableType] = [Text(title, style=_COLUMN_TITLE_STYLE)]
         parts.extend(self._format_column_lines(column))
         return Group(*parts)
 
@@ -154,36 +153,36 @@ class GitHubPanel(Panel):
         else:
             selected = None
         lines: list[Text] = []
-        for category, pulls in self._sections(column):
+        for category, prs in self._sections(column):
             lines.append(Text())
-            lines.append(Text(_format_heading(category, pulls), style=_CATEGORY_STYLES[category]))
-            if not pulls:
-                lines.append(Text(EMPTY_SECTION, style="dim"))
-            for pull in pulls:
-                lines.append(self._format_row(pull, pull is selected))
+            lines.append(Text(_format_heading(category, prs), style=_CATEGORY_STYLES[category]))
+            if not prs:
+                lines.append(Text(_EMPTY_SECTION, style="dim"))
+            for pr in prs:
+                lines.append(self._format_row(pr, pr is selected))
         return lines
 
-    def _format_row(self, pull: PullRequest, selected: bool) -> Text:
+    def _format_row(self, pr: PullRequest, selected: bool) -> Text:
         if selected:
             row = Text(style="bold")
-            marker = f"{SELECTED_MARK} "
+            marker = f"{_SELECTED_MARK} "
         else:
             row = Text()
             marker = "  "
         row.append(marker)
 
-        changed = self.seen.is_changed(self.integration_id, pull)
+        changed = self.seen.is_changed(self.integration_id, pr)
         if changed:
-            mark_char = CHANGED_MARK
-            mark_style = CHANGE_STYLE
+            mark_char = _CHANGED_MARK
+            mark_style = _CHANGE_STYLE
         else:
             mark_char = " "
             mark_style = None
         row.append(mark_char, style=mark_style)
         row.append(" ")
-        row.append(f"{pull.repository}#{pull.number}", style="dim")
+        row.append(f"{pr.repository}#{pr.number}", style="dim")
         row.append("  ")
-        row.append(pull.title)
+        row.append(pr.title)
         # One row per pull request: a wrapped title spills into the next row's
         # place and breaks a column that is already only half the screen wide.
         # The full title is one "o" away.
@@ -242,17 +241,17 @@ class GitHubPanel(Panel):
         return line
 
     def action_open_selected(self) -> None:
-        pull = self.selected_item()
-        if pull is None:
+        pr = self.selected_item()
+        if pr is None:
             return
-        webbrowser.open(pull.url)
-        self.mark_seen(pull)
+        webbrowser.open(pr.url)
+        self.mark_seen(pr)
 
     def action_toggle_detail(self) -> None:
         super().action_toggle_detail()
-        pull = self.selected_item()
-        if pull is not None and self.detail_showing(pull):
-            self.mark_seen(pull)
+        pr = self.selected_item()
+        if pr is not None and self.detail_showing(pr):
+            self.mark_seen(pr)
 
     def action_cursor_down(self) -> None:
         self._move(1)
@@ -264,7 +263,7 @@ class GitHubPanel(Panel):
         ordered = self._ordered(self.column)
         if not ordered:
             return
-        index = self._clamped_cursor(len(ordered))
+        index = self._clamped_cursor(self.column, len(ordered))
         self.cursors[self.column] = (index + offset) % len(ordered)
         self.refresh()
 
@@ -275,5 +274,5 @@ class GitHubPanel(Panel):
         self._switch_column(1)
 
     def _switch_column(self, offset: int) -> None:
-        self.column = (self.column + offset) % len(COLUMNS)
+        self.column = (self.column + offset) % len(_COLUMNS)
         self.refresh()

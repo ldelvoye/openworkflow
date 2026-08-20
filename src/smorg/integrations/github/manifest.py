@@ -1,7 +1,4 @@
-"""GitHub's declaration.
-
-Connects with a personal access token, OAuth is not supported.
-"""
+"""GitHub's declaration; connects with a personal access token."""
 
 from __future__ import annotations
 

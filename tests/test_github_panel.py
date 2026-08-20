@@ -9,7 +9,7 @@ from rich.console import Console
 from rich.text import Text
 
 from smorg.core.state import SeenState
-from smorg.integrations.github.panel import COLUMNS, GitHubPanel
+from smorg.integrations.github.panel import _COLUMNS, GitHubPanel
 from smorg.integrations.github.source import (
     Category,
     PullRequest,
@@ -20,8 +20,8 @@ from smorg.shell.panel import PanelState
 
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 
-LEFT_TITLE, LEFT_CATEGORIES = COLUMNS[0]
-RIGHT_TITLE, RIGHT_CATEGORIES = COLUMNS[1]
+LEFT_TITLE, LEFT_CATEGORIES = _COLUMNS[0]
+RIGHT_TITLE, RIGHT_CATEGORIES = _COLUMNS[1]
 
 
 def pull(
@@ -84,7 +84,7 @@ def test_both_column_titles_land_on_the_same_line():
 def test_every_declared_category_gets_a_heading():
     text = panel_with(pull()).ready_text()
 
-    for _, categories in COLUMNS:
+    for _, categories in _COLUMNS:
         for category in categories:
             assert str(category) in text
 
