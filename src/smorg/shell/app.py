@@ -31,7 +31,7 @@ from smorg.core.contract import (
 from smorg.core.keys import SHELL_KEYS
 from smorg.core.registry import UnknownIntegration, get_integration
 from smorg.core.state import SeenState
-from smorg.core.update import is_newer, get_latest_version
+from smorg.core.update import get_latest_version, is_newer
 from smorg.shell.help import HelpOverlay, Row, Section, merge_key_display, symbolize_key_display
 from smorg.shell.menu import ManagementScreen, MenuCommands
 from smorg.shell.panel import Panel, PanelState
