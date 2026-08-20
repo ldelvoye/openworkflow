@@ -1,4 +1,4 @@
-# Architecture
+# Architecture (Written by John Clanker)
 
 smorg is a keyboard-driven terminal dashboard: each connected integration is a
 tab, nothing is enabled by default, and the app is read-plus-safe-actions — it
