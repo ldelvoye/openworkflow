@@ -8,15 +8,21 @@ import httpx
 import pytest
 
 from smorg.auth.oauth import (
+    REGISTRATION_PORT,
+    DiscoveredProvider,
     OAuthError,
     OAuthMethod,
+    ServerMetadata,
+    StaticProvider,
     build_authorize_url,
+    callback_port,
     discover,
     exchange_code,
     extra_scopes_warning,
     make_pkce_pair,
     refresh_credentials,
     register_client,
+    resolve_metadata,
     revoke,
 )
 from smorg.auth.store import Credentials
@@ -24,11 +30,11 @@ from smorg.auth.store import Credentials
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
 RESOURCE = "https://mcp.linear.app/mcp"
 REDIRECT = "http://127.0.0.1:8765/callback"
-PROVIDER = OAuthMethod(
+DISCOVERED = DiscoveredProvider(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
-    scopes=("read",),
     client_name="smorg",
 )
+METHOD = OAuthMethod(provider=DISCOVERED, scopes=("read",))
 
 
 def client_returning(handler):
@@ -41,7 +47,7 @@ def metadata_client(request):
 
 @pytest.fixture
 def metadata():
-    return discover(client_returning(metadata_client), PROVIDER)
+    return discover(client_returning(metadata_client), DISCOVERED)
 
 
 def test_discover_reads_endpoints(metadata):
@@ -57,7 +63,7 @@ def test_discover_raises_on_error_response():
         return httpx.Response(404)
 
     with pytest.raises(OAuthError):
-        discover(client_returning(handler), PROVIDER)
+        discover(client_returning(handler), DISCOVERED)
 
 
 def test_discover_raises_when_a_200_is_not_json():
@@ -65,7 +71,7 @@ def test_discover_raises_when_a_200_is_not_json():
         return httpx.Response(200, content=b"<html>captive portal</html>")
 
     with pytest.raises(OAuthError, match="not JSON"):
-        discover(client_returning(handler), PROVIDER)
+        discover(client_returning(handler), DISCOVERED)
 
 
 def test_discover_raises_when_a_200_is_not_an_object():
@@ -73,7 +79,7 @@ def test_discover_raises_when_a_200_is_not_an_object():
         return httpx.Response(200, json=["not", "an", "object"])
 
     with pytest.raises(OAuthError, match="expected a JSON object"):
-        discover(client_returning(handler), PROVIDER)
+        discover(client_returning(handler), DISCOVERED)
 
 
 def test_register_client_raises_when_a_200_is_not_json(metadata):
@@ -81,7 +87,7 @@ def test_register_client_raises_when_a_200_is_not_json(metadata):
         return httpx.Response(201, content=b"<html>proxy</html>")
 
     with pytest.raises(OAuthError, match="not JSON"):
-        register_client(client_returning(handler), metadata, PROVIDER, REDIRECT)
+        register_client(client_returning(handler), metadata, DISCOVERED, REDIRECT)
 
 
 def test_exchange_code_raises_when_a_200_is_not_json(metadata):
@@ -112,7 +118,7 @@ def test_discover_rejects_a_plaintext_endpoint():
         )
 
     with pytest.raises(OAuthError, match="not https"):
-        discover(client_returning(handler), PROVIDER)
+        discover(client_returning(handler), DISCOVERED)
 
 
 def test_a_string_expires_in_is_accepted(metadata):
@@ -157,7 +163,7 @@ def test_register_client_posts_a_public_client(metadata):
         seen["body"] = json.loads(request.content)
         return httpx.Response(201, json={"client_id": "client-abc"})
 
-    client_id = register_client(client_returning(handler), metadata, PROVIDER, REDIRECT)
+    client_id = register_client(client_returning(handler), metadata, DISCOVERED, REDIRECT)
 
     assert client_id == "client-abc"
     assert seen["body"]["token_endpoint_auth_method"] == "none"
@@ -170,7 +176,7 @@ def test_register_client_raises_on_error_response(metadata):
         return httpx.Response(400, json={"error": "invalid_redirect_uri"})
 
     with pytest.raises(OAuthError):
-        register_client(client_returning(handler), metadata, PROVIDER, REDIRECT)
+        register_client(client_returning(handler), metadata, DISCOVERED, REDIRECT)
 
 
 def test_authorize_url_carries_pkce_state_and_resource(metadata):
@@ -290,7 +296,7 @@ def test_extra_scopes_warning_names_the_scopes_beyond_what_was_requested():
         access_token="at", refresh_token="rt", expires_at=None, scope="read write"
     )
 
-    warning = extra_scopes_warning("linear", "Linear", PROVIDER, credentials)
+    warning = extra_scopes_warning("linear", "Linear", METHOD, credentials)
 
     assert warning is not None
     assert "write" in warning
@@ -301,4 +307,43 @@ def test_extra_scopes_warning_names_the_scopes_beyond_what_was_requested():
 def test_extra_scopes_warning_is_none_when_granted_matches_requested():
     credentials = Credentials(access_token="at", refresh_token="rt", expires_at=None, scope="read")
 
-    assert extra_scopes_warning("linear", "Linear", PROVIDER, credentials) is None
+    assert extra_scopes_warning("linear", "Linear", METHOD, credentials) is None
+
+
+STATIC_METADATA = ServerMetadata(
+    authorization_endpoint="https://accounts.example.invalid/authorize",
+    token_endpoint="https://accounts.example.invalid/api/token",
+)
+STATIC = OAuthMethod(
+    provider=StaticProvider(
+        metadata=STATIC_METADATA,
+        help_url="https://developer.example.invalid/dashboard",
+    ),
+    scopes=("read",),
+)
+
+
+def no_network(request):
+    raise AssertionError(f"unexpected request to {request.url}")
+
+
+def test_resolve_metadata_uses_declared_endpoints_without_a_request():
+    metadata = resolve_metadata(client_returning(no_network), STATIC)
+
+    assert metadata is STATIC_METADATA
+
+
+def test_resolve_metadata_discovers_for_a_discovered_provider():
+    metadata = resolve_metadata(client_returning(metadata_client), METHOD)
+
+    assert metadata.authorization_endpoint == METADATA["authorization_endpoint"]
+
+
+def test_register_client_refuses_metadata_without_a_registration_endpoint():
+    with pytest.raises(OAuthError):
+        register_client(client_returning(no_network), STATIC_METADATA, DISCOVERED, REDIRECT)
+
+
+def test_the_callback_port_is_pinned_only_for_a_static_provider():
+    assert callback_port(STATIC) == REGISTRATION_PORT
+    assert callback_port(METHOD) == 0

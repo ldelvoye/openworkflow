@@ -1,9 +1,6 @@
 """OAuth 2.1: discovery, dynamic client registration, PKCE, refresh, revocation.
 
-An integration supplies a OAuthMethod and gets Credentials back; nothing here
-knows which service is on the other end. Registration asks for a public client,
-so no client secret exists anywhere in this flow; PKCE is what binds the
-authorization code to the process that requested it.
+An integration supplies an OAuthMethod and gets Credentials back.
 """
 
 from __future__ import annotations
@@ -20,69 +17,74 @@ import httpx
 
 from smorg.auth.store import Credentials, now
 
-# A decoded JSON response body. Values stay Any because the wire format is the
-# server's to choose; every field this module reads is validated where it is used.
-JsonObject = dict[str, Any]
+# A decoded JSON response body.
+_JsonObject = dict[str, Any]
 
 __all__ = [
     "REGISTERED_REDIRECT_URI",
     "REGISTRATION_PORT",
+    "DiscoveredProvider",
     "OAuthError",
     "OAuthMethod",
     "ServerMetadata",
+    "StaticProvider",
     "build_authorize_url",
+    "callback_port",
     "discover",
     "exchange_code",
     "extra_scopes_warning",
     "make_pkce_pair",
     "refresh_credentials",
     "register_client",
+    "resolve_metadata",
     "revoke",
 ]
 
-# The port named at registration time, not the one the callback listens on.
-# The callback binds an ephemeral port instead, so nothing can squat this one
-# in advance; a provider that insists on an exact match needs its own opt-out.
 REGISTRATION_PORT = 8765
-
-
-def redirect_uri_for(port: int) -> str:
-    return f"http://127.0.0.1:{port}/callback"
-
-
-REGISTERED_REDIRECT_URI = redirect_uri_for(REGISTRATION_PORT)
-
-
-class OAuthError(Exception):
-    """A registration, token, or discovery request failed. Never carries a token."""
-
-
-@dataclass(frozen=True)
-class OAuthMethod:
-    """Authorize in the browser: the metadata document to discover, the scopes to request, and the
-    client name to register."""
-
-    metadata_url: str
-    scopes: tuple[str, ...]
-    client_name: str
+REGISTERED_REDIRECT_URI = f"http://127.0.0.1:{REGISTRATION_PORT}/callback"
 
 
 @dataclass(frozen=True)
 class ServerMetadata:
     authorization_endpoint: str
     token_endpoint: str
-    registration_endpoint: str
+    registration_endpoint: str | None = None
     revocation_endpoint: str | None = None
     resource: str | None = None
 
 
-def _json_object(response: httpx.Response, source: str) -> JsonObject:
-    """Decode a response body that must be a JSON object.
+@dataclass(frozen=True)
+class DiscoveredProvider:
+    """Self-serve: endpoints come from the metadata document, and smorg registers itself as a
+    public client under client_name."""
 
-    A 200 carrying something else is routine in the wild (a proxy or captive
-    portal answering with HTML), so it has to surface as OAuthError like every
-    other failure here, not as a decoder traceback.
-    """
+    metadata_url: str
+    client_name: str
+
+
+@dataclass(frozen=True)
+class StaticProvider:
+    """No discovery or registration: endpoints are declared here, and the user creates the OAuth
+    app themselves (at help_url) and pastes its client id."""
+
+    metadata: ServerMetadata
+    help_url: str
+
+
+@dataclass(frozen=True)
+class OAuthMethod:
+    """Authorize in the browser against provider, requesting scopes."""
+
+    provider: DiscoveredProvider | StaticProvider
+    scopes: tuple[str, ...]
+
+
+class OAuthError(Exception):
+    """A registration, token, or discovery request failed. Never carries a token."""
+
+
+def _json_object(response: httpx.Response, source: str) -> _JsonObject:
+    """Decode a response body that must be a JSON object."""
     try:
         payload = response.json()
     except ValueError as error:
@@ -93,13 +95,7 @@ def _json_object(response: httpx.Response, source: str) -> JsonObject:
 
 
 def _require_https(url: str, name: str) -> str:
-    """Refuse a plaintext endpoint named by a metadata document.
-
-    Endpoints inside the (TLS-verified) metadata are still whatever the
-    provider wrote; an http token endpoint would otherwise POST a refresh
-    token in the clear. The loopback redirect is exempt; it never reaches
-    this check.
-    """
+    """Refuse a plaintext endpoint named by a metadata document."""
     if urlsplit(url).scheme != "https":
         raise OAuthError(f"the {name} endpoint is not https: {url}")
     return url
@@ -109,7 +105,7 @@ def _require_https_if_present(url: str | None, name: str) -> str | None:
     return None if url is None else _require_https(url, name)
 
 
-def discover(client: httpx.Client, provider: OAuthMethod) -> ServerMetadata:
+def discover(client: httpx.Client, provider: DiscoveredProvider) -> ServerMetadata:
     try:
         response = client.get(provider.metadata_url)
     except httpx.HTTPError as error:
@@ -131,12 +127,20 @@ def discover(client: httpx.Client, provider: OAuthMethod) -> ServerMetadata:
         raise OAuthError(f"metadata document is missing {error}") from error
 
 
+def resolve_metadata(client: httpx.Client, method: OAuthMethod) -> ServerMetadata:
+    if isinstance(method.provider, StaticProvider):
+        return method.provider.metadata
+    return discover(client, method.provider)
+
+
 def register_client(
     client: httpx.Client,
     metadata: ServerMetadata,
-    provider: OAuthMethod,
+    provider: DiscoveredProvider,
     redirect_uri: str,
 ) -> str:
+    if metadata.registration_endpoint is None:
+        raise OAuthError("the provider names no registration endpoint")
     try:
         response = client.post(
             metadata.registration_endpoint,
@@ -156,6 +160,14 @@ def register_client(
         return _json_object(response, "the registration endpoint")["client_id"]
     except KeyError as error:
         raise OAuthError("registration response contained no client_id") from error
+
+
+def callback_port(method: OAuthMethod) -> int:
+    # A hand-registered app pins its redirect URI, so a static provider binds the registered
+    # port exactly; discovered providers accept any loopback port (RFC 8252 §7.3).
+    if isinstance(method.provider, StaticProvider):
+        return REGISTRATION_PORT
+    return 0
 
 
 def make_pkce_pair() -> tuple[str, str]:
@@ -188,7 +200,7 @@ def build_authorize_url(
 
 
 def _credentials_from_token_response(
-    payload: JsonObject, fallback_refresh: str | None
+    payload: _JsonObject, fallback_refresh: str | None
 ) -> Credentials:
     expires_in = payload.get("expires_in")
     # RFC 6749 says a number; some providers send it as a decimal string. Accept
@@ -204,13 +216,12 @@ def _credentials_from_token_response(
     if received_refresh_token:
         refresh_token = received_refresh_token
     else:
-        # Omission means the refresh token we already hold stays valid;
-        # dropping it here would silently break the refresh after next.
+        # The refresh token we already hold stays valid
         refresh_token = fallback_refresh
 
     if expires_in is None:
-        # expires_in of 0 means the token is already dead; None means the
-        # server said nothing about expiry at all.
+        # expires_in of 0 means the token is already dead; None means the server said nothing about
+        # expiry at all.
         expires_at = None
     else:
         expires_at = now() + timedelta(seconds=expires_in)
@@ -226,7 +237,9 @@ def _credentials_from_token_response(
         raise OAuthError("token response contained no usable access_token") from error
 
 
-def _post_token(client: httpx.Client, metadata: ServerMetadata, form: dict[str, str]) -> JsonObject:
+def _post_token(
+    client: httpx.Client, metadata: ServerMetadata, form: dict[str, str]
+) -> _JsonObject:
     # Binds the issued token to the protected resource; omit it and the token
     # carries the wrong audience — rejected later at the API, not here.
     if metadata.resource:
@@ -287,16 +300,11 @@ def refresh_credentials(
 
 
 def extra_scopes_warning(
-    integration_id: str, display_name: str, provider: OAuthMethod, credentials: Credentials
+    integration_id: str, display_name: str, method: OAuthMethod, credentials: Credentials
 ) -> str | None:
-    """None when the provider granted nothing beyond what was requested.
-
-    A warning, not a refusal: every call site is read-only, so an
-    over-scoped token's only cost is being a bigger prize if stolen. Shared
-    text so a CLI print and a TUI toast never drift apart.
-    """
+    """None when the provider granted nothing beyond what was requested."""
     granted = set(credentials.scope.split())
-    requested = set(provider.scopes)
+    requested = set(method.scopes)
     extra = sorted(granted - requested)
     if not extra:
         return None
@@ -313,20 +321,14 @@ def revoke(
     client_id: str,
     credentials: Credentials,
 ) -> bool:
-    """Ask the server to invalidate the refresh token (RFC 7009).
-
-    Reports success rather than raising: the caller deletes the local copy
-    either way, so a server that is unreachable or has already forgotten the
-    token must not leave credentials stranded on the machine.
+    """Ask the server to invalidate the refresh token (RFC 7009). Doesn't raise because local token
+    is always deleted.
     """
     if metadata.revocation_endpoint is None:
         return False
     if credentials.refresh_token:
         token = credentials.refresh_token
     else:
-        # Revoking the refresh token is what matters — it outlives the
-        # session; with none, the access token is the only thing left worth
-        # invalidating.
         token = credentials.access_token
     try:
         response = client.post(

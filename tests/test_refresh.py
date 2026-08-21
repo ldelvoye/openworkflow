@@ -4,16 +4,18 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from smorg.auth.oauth import OAuthMethod
+from smorg.auth.oauth import DiscoveredProvider, OAuthMethod
 from smorg.auth.refresh import EXPIRY_MARGIN, credentials_for, fresh_credentials
 from smorg.auth.store import Credentials, get_credentials, set_credentials
 from smorg.auth.token import TokenMethod
 from smorg.core.contract import AuthExpired, AuthPath
 
-PROVIDER = OAuthMethod(
-    metadata_url="https://auth.invalid/.well-known/oauth-authorization-server",
+METHOD = OAuthMethod(
+    provider=DiscoveredProvider(
+        metadata_url="https://auth.invalid/.well-known/oauth-authorization-server",
+        client_name="smorg",
+    ),
     scopes=("read",),
-    client_name="smorg",
 )
 METADATA = {
     "authorization_endpoint": "https://auth.invalid/authorize",
@@ -59,7 +61,7 @@ def refresh_server(hits: list[str]) -> httpx.Client:
 def test_untouched_when_not_near_expiry():
     set_credentials("linear", credentials(timedelta(hours=2)))
     hits: list[str] = []
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server(hits))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server(hits))
     assert result is not None and result.access_token == "access-old"
     assert hits == []
 
@@ -67,18 +69,18 @@ def test_untouched_when_not_near_expiry():
 def test_untouched_when_expiry_is_unknown():
     set_credentials("linear", credentials(None))
     hits: list[str] = []
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server(hits))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server(hits))
     assert result is not None and result.access_token == "access-old"
     assert hits == []
 
 
 def test_none_stays_none():
-    assert fresh_credentials("linear", PROVIDER, "client-1", refresh_server([])) is None
+    assert fresh_credentials("linear", METHOD, "client-1", refresh_server([])) is None
 
 
 def test_a_token_inside_the_margin_is_refreshed_and_persisted():
     set_credentials("linear", credentials(EXPIRY_MARGIN - timedelta(seconds=60)))
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server([]))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server([]))
     assert result is not None and result.access_token == "access-new"
     stored = get_credentials("linear")
     assert stored is not None and stored.access_token == "access-new"
@@ -86,20 +88,20 @@ def test_a_token_inside_the_margin_is_refreshed_and_persisted():
 
 def test_an_already_expired_token_is_refreshed():
     set_credentials("linear", credentials(timedelta(seconds=-10)))
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server([]))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server([]))
     assert result is not None and result.access_token == "access-new"
 
 
 def test_a_refresh_response_without_a_refresh_token_keeps_the_old_one():
     set_credentials("linear", credentials(timedelta(seconds=-10)))
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server([]))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server([]))
     assert result is not None and result.refresh_token == "refresh-1"
 
 
 def test_no_refresh_token_returns_the_stored_credentials_untouched():
     set_credentials("linear", credentials(timedelta(seconds=-10), refresh_token=None))
     hits: list[str] = []
-    result = fresh_credentials("linear", PROVIDER, "client-1", refresh_server(hits))
+    result = fresh_credentials("linear", METHOD, "client-1", refresh_server(hits))
     assert result is not None and result.access_token == "access-old"
     assert hits == []
 
@@ -107,7 +109,7 @@ def test_no_refresh_token_returns_the_stored_credentials_untouched():
 def test_no_client_id_returns_the_stored_credentials_untouched():
     set_credentials("linear", credentials(timedelta(seconds=-10)))
     hits: list[str] = []
-    result = fresh_credentials("linear", PROVIDER, None, refresh_server(hits))
+    result = fresh_credentials("linear", METHOD, None, refresh_server(hits))
     assert result is not None and result.access_token == "access-old"
     assert hits == []
 
@@ -122,7 +124,7 @@ def test_a_failed_refresh_is_auth_expired_and_never_leaks_the_token():
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(AuthExpired) as excinfo:
-        fresh_credentials("linear", PROVIDER, "client-1", http)
+        fresh_credentials("linear", METHOD, "client-1", http)
     assert "refresh" in str(excinfo.value)
     assert "refresh-1" not in str(excinfo.value)
     assert "access-old" not in str(excinfo.value)
@@ -144,7 +146,7 @@ def test_concurrent_refreshes_hit_the_token_endpoint_once():
 
     def run() -> None:
         http = httpx.Client(transport=httpx.MockTransport(handler))
-        fresh_credentials("linear", PROVIDER, "client-1", http)
+        fresh_credentials("linear", METHOD, "client-1", http)
 
     threads = [threading.Thread(target=run) for _ in range(2)]
     for thread in threads:
@@ -167,7 +169,7 @@ def test_the_refresh_request_is_a_refresh_grant_for_the_stored_token():
         )
 
     http = httpx.Client(transport=httpx.MockTransport(handler))
-    fresh_credentials("linear", PROVIDER, "client-1", http)
+    fresh_credentials("linear", METHOD, "client-1", http)
     assert forms[0]["grant_type"] == "refresh_token"
     assert forms[0]["refresh_token"] == "refresh-1"
     assert forms[0]["client_id"] == "client-1"
@@ -181,7 +183,7 @@ TOKEN_PATH = AuthPath(
         label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
     ),
 )
-OAUTH_PATH = AuthPath(id="oauth", method=PROVIDER)
+OAUTH_PATH = AuthPath(id="oauth", method=METHOD)
 
 
 def test_a_token_path_is_handed_its_stored_credentials_untouched():

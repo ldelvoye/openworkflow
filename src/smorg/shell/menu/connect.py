@@ -1,26 +1,27 @@
-"""The ctrl+p menu's management surface: the "Remove integration" and "Add
-integration" commands, the tab/integration/path pickers and modals they lead
-to, and the base every management screen shares.
-"""
+"""The add flow: the integration and path pickers, and the connect modal each auth path leads to."""
 
 from __future__ import annotations
 
-import subprocess
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
 from textual import work
-from textual.app import App, ComposeResult
+from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.command import DiscoveryHit, Hit, Hits, Provider
 from textual.containers import Vertical
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from smorg.auth.login import LoginCancelled, perform_login
-from smorg.auth.oauth import OAuthError, OAuthMethod, extra_scopes_warning
+from smorg.auth.oauth import (
+    REGISTERED_REDIRECT_URI,
+    OAuthError,
+    OAuthMethod,
+    StaticProvider,
+    extra_scopes_warning,
+)
 from smorg.auth.store import Credentials, CredentialStoreError, set_credentials
 from smorg.auth.token import (
     InvalidToken,
@@ -30,177 +31,9 @@ from smorg.auth.token import (
 )
 from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
 from smorg.core.contract import AuthPath
-from smorg.core.registry import UnknownIntegration, get_integration, manifests
-from smorg.core.removal import RemovalResult, remove_integration, revoke_best_effort
-from smorg.core.text import sanitize_line, truncate
-from smorg.core.update import upgrade_command
-from smorg.shell.modal import ModalBox
-
-REMOVE_COMMAND = "Remove integration"
-ADD_COMMAND = "Add integration"
-
-
-def _selected[T](items: Sequence[T], option_id: str | None, id_of: Callable[[T], str]) -> T | None:
-    for item in items:
-        if id_of(item) == option_id:
-            return item
-    return None
-
-
-@dataclass(frozen=True)
-class RemovableTab:
-    integration_id: str
-    display_name: str
-    connection_id: str | None
-
-    @property
-    def label(self) -> str:
-        if self.connection_id:
-            return f"{self.display_name} ({self.connection_id})"
-        return self.display_name
-
-
-def removable_tabs() -> tuple[RemovableTab, ...]:
-    """One entry per configured tab, known-to-this-build or not. A config that can't even be
-    read yields no commands rather than raising through the palette.
-    """
-    try:
-        config = load_config()
-    except ConfigError:
-        return ()
-    return tuple(_describe_tab(tab) for tab in config.tabs)
-
-
-def _describe_tab(tab: TabConfig) -> RemovableTab:
-    """Known -> the manifest's display name and its resolved connection id (a recorded-but-stale
-    id is kept verbatim, never re-resolved). Unknown -> the raw integration id, and only a
-    connection id already on record.
-    """
-    try:
-        integration = get_integration(tab.integration)
-    except UnknownIntegration:
-        return RemovableTab(tab.integration, tab.integration, tab.connection)
-    if tab.connection:
-        connection_id = tab.connection
-    else:
-        connection_id = integration.manifest.connection(None).id
-    return RemovableTab(tab.integration, integration.manifest.display_name, connection_id)
-
-
-def _format_removal_toast(display_name: str, result: RemovalResult) -> str:
-    if not result.had_credentials:
-        return f"removed {display_name}"
-    if result.revoked:
-        return f"removed {display_name}; token revoked"
-    return f"removed {display_name}; token could not be revoked and stays valid until it expires"
-
-
-class ManagementScreen(ModalBox):
-    """Base for the modal screens that manage integrations (add and remove). SmorgApp's
-    check_action refuses every shell-level action while one of these is the top screen.
-    """
-
-    DEFAULT_CSS = """
-    ManagementScreen > OptionList { max-width: 64; }
-    """
-
-
-class RemoveIntegrationList(ManagementScreen):
-    """One row per configured tab; enter hands off to RemoveConfirmModal, escape cancels. This
-    screen dismisses itself before pushing the confirm modal, so the two are never stacked.
-    """
-
-    BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
-
-    def compose(self) -> ComposeResult:
-        rows = (Option(tab.label, id=tab.integration_id) for tab in removable_tabs())
-        options = OptionList(*rows)
-        options.border_title = "remove integration"
-        yield options
-
-    def action_cancel(self) -> None:
-        self.dismiss()
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        event.stop()
-        chosen = _selected(removable_tabs(), event.option_id, lambda tab: tab.integration_id)
-        self.dismiss()
-        if chosen is not None:
-            self.app.push_screen(RemoveConfirmModal(chosen.integration_id, chosen.display_name))
-
-
-class RemoveConfirmModal(ManagementScreen):
-    """Confirm, then remove: y/n or escape decide. Once confirmed, a worker runs and every key
-    is ignored until it reports back; removal is not cancellable.
-    """
-
-    BINDINGS = [
-        Binding("y", "confirm", "confirm"),
-        Binding("n", "cancel", "cancel"),
-        Binding("escape", "cancel", "cancel", show=False),
-    ]
-
-    def __init__(self, integration_id: str, display_name: str) -> None:
-        super().__init__()
-        self.integration_id = integration_id
-        self.display_name = display_name
-        self._removing = False
-
-    def compose(self) -> ComposeResult:
-        box = Vertical(Static(self._body_text(), markup=False, id="body"), classes="box")
-        box.border_title = "remove integration"
-        yield box
-
-    def _body_text(self) -> str:
-        if self._removing:
-            return f"removing {self.display_name}…"
-        return (
-            f"Remove {self.display_name}? This deletes its stored token "
-            "(revoking it if possible), its tab, and its seen marks.\n\n"
-            "y confirm   n/esc cancel"
-        )
-
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        # Not cancellable once started: every key, escape included, is inert.
-        if self._removing:
-            return False
-        return super().check_action(action, parameters)
-
-    def action_cancel(self) -> None:
-        self.dismiss()
-
-    def action_confirm(self) -> None:
-        self._removing = True
-        self.query_one("#body", Static).update(self._body_text())
-        self._remove()
-
-    @work(thread=True)
-    def _remove(self) -> None:
-        try:
-            result = remove_integration(self.integration_id)
-        except (CredentialStoreError, ConfigError, UnknownIntegration) as error:
-            # UnknownIntegration: the tab vanished externally (e.g. a CLI logout) between
-            # listing it and confirming — same error toast.
-            self.app.call_from_thread(self._fail, str(error))
-            return
-        self.app.call_from_thread(self._succeed, result)
-
-    def _fail(self, message: str) -> None:
-        self.dismiss()
-        self.app.notify(message, severity="error")
-
-    async def _succeed(self, result: RemovalResult) -> None:
-        # Lazy import: at module scope this would cycle with app.py.
-        from smorg.shell.app import SmorgApp
-
-        app = self.app
-        assert isinstance(app, SmorgApp)
-        # remove_integration() purged the file; forget the live instance too, or the next save()
-        # writes these marks back.
-        app.seen.forget(self.integration_id)
-        await app.drop_tab(self.integration_id)
-        self.dismiss()
-        app.notify(_format_removal_toast(self.display_name, result))
+from smorg.core.registry import manifests
+from smorg.core.removal import revoke_best_effort
+from smorg.shell.menu.base import ManagementScreen, _selected
 
 
 @dataclass(frozen=True)
@@ -221,11 +54,12 @@ def addable_integrations() -> tuple[AddableIntegration, ...]:
     except ConfigError:
         return ()
     configured_ids = {tab.integration for tab in config.tabs}
-    return tuple(
+    integrations = tuple(
         AddableIntegration(manifest.id, manifest.display_name, manifest.connections)
         for manifest in manifests()
         if manifest.id not in configured_ids
     )
+    return integrations
 
 
 class AddIntegrationList(ManagementScreen):
@@ -304,6 +138,8 @@ def connect_screen_for(integration: AddableIntegration, path: AuthPath) -> Manag
     """Which connect screen a chosen path leads to"""
     if isinstance(path.method, TokenMethod):
         return TokenModal(integration.integration_id, integration.display_name, path)
+    if isinstance(path.method.provider, StaticProvider):
+        return ClientIdModal(integration.integration_id, integration.display_name, path)
     return ConnectModal(integration.integration_id, integration.display_name, path)
 
 
@@ -398,6 +234,63 @@ class TokenModal(ManagementScreen):
         await open_tab_for(self, self.display_name, tab_config, credentials_from_token(token))
 
 
+class ClientIdModal(ManagementScreen):
+    """Ask for the client id of the OAuth app the user created themselves, then hand off to
+    ConnectModal for the browser flow."""
+
+    DEFAULT_CSS = """
+    ClientIdModal > .box { width: 64; }
+    ClientIdModal Input { width: 1fr; }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
+
+    def __init__(self, integration_id: str, display_name: str, path: AuthPath) -> None:
+        super().__init__()
+        method = path.method
+        assert isinstance(method, OAuthMethod) and isinstance(method.provider, StaticProvider), (
+            "ClientIdModal is only reached for a static-provider path"
+        )
+        self.integration_id = integration_id
+        self.display_name = display_name
+        self.path = path
+        self.provider = method.provider
+
+    def compose(self) -> ComposeResult:
+        entry = Input(placeholder="client id", id="client-id")
+        box = Vertical(Static(self.body_text(), markup=False, id="body"), entry, classes="box")
+        box.border_title = "add integration"
+        yield box
+
+    def on_mount(self) -> None:
+        self.query_one("#client-id", Input).focus()
+
+    def body_text(self) -> str:
+        """Public, like Panel.body_text(), so tests can assert on content directly."""
+        return "\n\n".join(
+            [
+                f"{self.display_name} needs an OAuth app you create yourself.",
+                f"create one at: {self.provider.help_url}",
+                f"set its redirect uri to: {REGISTERED_REDIRECT_URI}",
+                "enter connect   esc cancel",
+            ]
+        )
+
+    def action_cancel(self) -> None:
+        self.dismiss()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        client_id = event.value.strip()
+        if not client_id:
+            self.app.notify("a client id is required", severity="error")
+            return
+        self.dismiss()
+        self.app.push_screen(
+            ConnectModal(self.integration_id, self.display_name, self.path, client_id=client_id)
+        )
+
+
 class ConnectModal(ManagementScreen):
     """Run the OAuth connect for one integration and path in-app while the TUI stays
     input-blocked. Escape cancels only while perform_login is still waiting; after it returns or
@@ -406,14 +299,17 @@ class ConnectModal(ManagementScreen):
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
-    def __init__(self, integration_id: str, display_name: str, path: AuthPath) -> None:
+    def __init__(
+        self, integration_id: str, display_name: str, path: AuthPath, client_id: str | None = None
+    ) -> None:
         super().__init__()
-        provider = path.method
-        assert isinstance(provider, OAuthMethod), "ConnectModal is only reached for an OAuth path"
+        method = path.method
+        assert isinstance(method, OAuthMethod), "ConnectModal is only reached for an OAuth path"
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path
-        self.provider = provider
+        self.method = method
+        self.client_id = client_id
         self._url: str | None = None
         self._cancellable = True
         self._cancelled_event = threading.Event()
@@ -448,8 +344,8 @@ class ConnectModal(ManagementScreen):
             with httpx.Client(timeout=30) as client:
                 client_id, credentials = perform_login(
                     client,
-                    self.provider,
-                    None,
+                    self.method,
+                    self.client_id,
                     on_authorize_url=lambda url: self.app.call_from_thread(self._show_url, url),
                     cancelled=self._cancelled_event,
                 )
@@ -477,13 +373,13 @@ class ConnectModal(ManagementScreen):
         def revoke_token() -> None:
             # The token is live and about to become unreachable — nothing will hold it, so
             # nothing could revoke it later.
-            revoke_best_effort(self.provider, client_id, credentials)
+            revoke_best_effort(self.method, client_id, credentials)
 
         tab_config = TabConfig(
             integration=self.integration_id, client_id=client_id, connection=self.path.id
         )
         warning = extra_scopes_warning(
-            self.integration_id, self.display_name, self.provider, credentials
+            self.integration_id, self.display_name, self.method, credentials
         )
         await open_tab_for(
             self,
@@ -493,99 +389,3 @@ class ConnectModal(ManagementScreen):
             on_store_failure=revoke_token,
             warning=warning,
         )
-
-
-def _upgrade_label(version: str) -> str:
-    return f"Upgrade smorg to {version}"
-
-
-def _upgrade_failure_toast(command: str, stderr: str) -> str:
-    lines = [line for line in stderr.splitlines() if line.strip()]
-    if lines:
-        tail = lines[-1]
-    else:
-        tail = ""
-    safe_tail = sanitize_line(truncate(tail, 80))
-    return f"{command} failed: {safe_tail}"
-
-
-def _run_upgrade(app: App[object], command: str, version: str) -> None:
-    """Run the upgrade command off the UI thread, then toast the outcome. Runs on a worker
-    thread; every app touch goes through call_from_thread.
-    """
-    try:
-        result = subprocess.run(command.split(), capture_output=True, text=True)
-    except OSError as error:
-        app.call_from_thread(
-            app.notify, _upgrade_failure_toast(command, str(error)), severity="error"
-        )
-        return
-    if result.returncode == 0:
-        app.call_from_thread(app.notify, f"upgraded — restart smorg to use {version}")
-    else:
-        app.call_from_thread(
-            app.notify, _upgrade_failure_toast(command, result.stderr), severity="error"
-        )
-
-
-class MenuCommands(Provider):
-    """Top-level management commands for the menu."""
-
-    async def discover(self) -> Hits:
-        if removable_tabs():
-            yield DiscoveryHit(REMOVE_COMMAND, self._open_remove_list)
-        if addable_integrations():
-            yield DiscoveryHit(ADD_COMMAND, self._open_add_list)
-        available_update = self._available_update()
-        if available_update is not None:
-            yield DiscoveryHit(_upgrade_label(available_update), self._upgrade)
-
-    async def search(self, query: str) -> Hits:
-        matcher = self.matcher(query)
-        if removable_tabs():
-            score = matcher.match(REMOVE_COMMAND)
-            if score > 0:
-                yield Hit(score, matcher.highlight(REMOVE_COMMAND), self._open_remove_list)
-        if addable_integrations():
-            score = matcher.match(ADD_COMMAND)
-            if score > 0:
-                yield Hit(score, matcher.highlight(ADD_COMMAND), self._open_add_list)
-        available_update = self._available_update()
-        if available_update is not None:
-            label = _upgrade_label(available_update)
-            score = matcher.match(label)
-            if score > 0:
-                yield Hit(score, matcher.highlight(label), self._upgrade)
-
-    def _open_remove_list(self) -> None:
-        self.app.push_screen(RemoveIntegrationList())
-
-    def _open_add_list(self) -> None:
-        self.app.push_screen(AddIntegrationList())
-
-    def _available_update(self) -> str | None:
-        # Lazy import: at module scope this would cycle with app.py.
-        from smorg.shell.app import SmorgApp
-
-        app = self.app
-        if not isinstance(app, SmorgApp):
-            return None
-        return app.available_update
-
-    def _upgrade(self) -> None:
-        # Lazy import: at module scope this would cycle with app.py.
-        from smorg.shell.app import SmorgApp
-
-        app = self.app
-        assert isinstance(app, SmorgApp)
-        version = app.available_update
-        assert version is not None, "_upgrade is only offered when available_update is set"
-
-        command = upgrade_command()
-        if command is None:
-            app.notify(
-                "smorg can't tell how it was installed — "
-                f"upgrade to {version} with your own package manager"
-            )
-            return
-        app.run_worker(lambda: _run_upgrade(app, command, version), thread=True)

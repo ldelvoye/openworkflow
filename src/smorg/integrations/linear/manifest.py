@@ -7,22 +7,24 @@ from datetime import timedelta
 
 import httpx
 
-from smorg.auth.oauth import OAuthMethod
+from smorg.auth.oauth import DiscoveredProvider, OAuthMethod
 from smorg.auth.store import Credentials
 from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.linear.panel import LinearPanel
 from smorg.integrations.linear.source import Issue, IssueDetail, fetch, fetch_detail
 
-PROVIDER = OAuthMethod(
-    metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
+METHOD = OAuthMethod(
+    provider=DiscoveredProvider(
+        metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
+        client_name="smorg",
+    ),
     scopes=("read",),
-    client_name="smorg",
 )
 
 MANIFEST = Manifest(
     id="linear",
     display_name="Linear",
-    connections=(AuthPath(id="mcp", method=PROVIDER),),
+    connections=(AuthPath(id="mcp", method=METHOD),),
     stale_after=timedelta(minutes=5),
     actions=(Action(id="open", label="Open in Linear", key="o", action_class=ActionClass.LAUNCH),),
 )

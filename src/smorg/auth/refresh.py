@@ -53,7 +53,7 @@ def credentials_for(
 
 def fresh_credentials(
     integration_id: str,
-    provider: OAuthMethod,
+    method: OAuthMethod,
     client_id: str | None,
     http: httpx.Client,
 ) -> Credentials | None:
@@ -74,7 +74,7 @@ def fresh_credentials(
         if credentials is None or not _expiring(credentials):
             return credentials
         try:
-            metadata = oauth.discover(http, provider)
+            metadata = oauth.resolve_metadata(http, method)
             refreshed = oauth.refresh_credentials(http, metadata, client_id, credentials)
         except OAuthError as error:
             raise AuthExpired(f"token refresh failed ({error})") from error

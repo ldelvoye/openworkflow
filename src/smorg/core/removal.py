@@ -24,16 +24,14 @@ class RemovalResult:
     tab_removed: bool
 
 
-def revoke_best_effort(
-    provider: oauth.OAuthMethod, client_id: str, credentials: Credentials
-) -> bool:
+def revoke_best_effort(method: oauth.OAuthMethod, client_id: str, credentials: Credentials) -> bool:
     """Ask the provider to revoke a token.
 
     Local deletion happens either way, so a revocation failure is non-blocking.
     """
     try:
         with httpx.Client(timeout=15) as client:
-            metadata = oauth.discover(client, provider)
+            metadata = oauth.resolve_metadata(client, method)
             return oauth.revoke(client, metadata, client_id, credentials)
     except oauth.OAuthError:
         return False

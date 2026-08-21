@@ -79,11 +79,16 @@ static bearer token.
 
 **OAuth is worth it only where the service makes it cheap.** The OAuth core
 does metadata discovery (RFC 8414) and dynamic client registration (RFC 7591):
-a provider supporting both connects in one browser round trip with nothing to
-configure. Today that combination is essentially the remote-MCP-server auth
-profile — the real reason MCP appears in this design at all, and why
-"OAuth-capable" and "has an MCP endpoint" currently coincide. The coincidence
-is not the architecture: nothing in `auth/` knows MCP exists.
+a provider supporting both (a `DiscoveredProvider`) connects in one browser
+round trip with nothing to configure. Today that combination is essentially the
+remote-MCP-server auth profile — the real reason MCP appears in this design at
+all, and why "OAuth-capable" and "has an MCP endpoint" currently coincide. The
+coincidence is not the architecture: nothing in `auth/` knows MCP exists.
+
+A provider offering neither is declared as a `StaticProvider`: the manifest
+carries the endpoints, and the user creates the OAuth app themselves and
+pastes its client id. That per-user setup step is worth it only when the
+provider issues no token a user could paste instead.
 
 GitHub publishes no metadata document and registers no clients, so an OAuth
 tab there would need an app somebody registered by hand and a client id

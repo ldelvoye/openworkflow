@@ -4,7 +4,7 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from smorg.auth.oauth import OAuthMethod
+from smorg.auth.oauth import DiscoveredProvider, OAuthMethod
 from smorg.auth.store import Credentials
 from smorg.core.contract import (
     Action,
@@ -25,12 +25,14 @@ from smorg.core.registry import (
 )
 from smorg.shell.panel import Panel
 
-PROVIDER = OAuthMethod(
-    metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
+METHOD = OAuthMethod(
+    provider=DiscoveredProvider(
+        metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
+        client_name="smorg",
+    ),
     scopes=("read",),
-    client_name="smorg",
 )
-DEFAULT_CONNECTIONS = (AuthPath(id="mcp", method=PROVIDER),)
+DEFAULT_CONNECTIONS = (AuthPath(id="mcp", method=METHOD),)
 
 
 def manifest(
@@ -108,18 +110,18 @@ def test_manifest_rejects_empty_connections():
 
 def test_manifest_rejects_duplicate_connection_ids():
     with pytest.raises(ValueError, match="duplicate connection path"):
-        manifest(connections=(AuthPath(id="mcp", method=PROVIDER),) * 2)
+        manifest(connections=(AuthPath(id="mcp", method=METHOD),) * 2)
 
 
 def test_connection_with_no_chosen_id_returns_the_first_declared_path():
-    mcp = AuthPath(id="mcp", method=PROVIDER)
-    api_key = AuthPath(id="api-key", method=PROVIDER)
+    mcp = AuthPath(id="mcp", method=METHOD)
+    api_key = AuthPath(id="api-key", method=METHOD)
     declared = manifest(connections=(mcp, api_key))
     assert declared.connection(None) is mcp
 
 
 def test_connection_with_an_unknown_id_names_the_declared_ones():
-    declared = manifest(connections=(AuthPath(id="mcp", method=PROVIDER),))
+    declared = manifest(connections=(AuthPath(id="mcp", method=METHOD),))
     with pytest.raises(ValueError, match="mcp") as excinfo:
         declared.connection("nope")
     assert "nope" in str(excinfo.value)
