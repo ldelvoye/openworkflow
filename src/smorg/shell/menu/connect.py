@@ -272,6 +272,7 @@ class ClientIdModal(ManagementScreen):
                 f"{self.display_name} needs an OAuth app you create yourself.",
                 f"create one at: {self.provider.help_url}",
                 f"set its redirect uri to: {REGISTERED_REDIRECT_URI}",
+                self.provider.setup_hint,
                 "enter connect   esc cancel",
             ]
         )

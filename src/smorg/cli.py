@@ -82,6 +82,7 @@ def _connect(integration_id: str) -> int:
         print(f"{integration.manifest.display_name} needs an OAuth app you create yourself.")
         print(f"create one at: {provider.help_url}")
         print(f"set its redirect uri to: {oauth.REGISTERED_REDIRECT_URI}")
+        print(provider.setup_hint)
         existing_client_id = input("client id: ").strip()
         if not existing_client_id:
             print("a client id is required", file=sys.stderr)
