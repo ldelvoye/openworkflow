@@ -1,5 +1,7 @@
 # smorg
 
+<!-- demo PR: safe to close/delete, no functional change -->
+
 Short for [Smorgasbord](https://en.wikipedia.org/wiki/Smorgasbord): a table laid out with many dishes, everyone taking what they want.
 
 smorg is that table for your work: a keyboard-driven CLI with one tab per connected integration, showing what's on your plate and what changes since you last looked.
