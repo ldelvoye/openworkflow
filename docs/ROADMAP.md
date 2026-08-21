@@ -32,9 +32,3 @@
 - Re-order downloaded intgrations
 - Enable drop-in self-coded plugins
 - Homebrew download
-
-
-## Patches
-
-- Add repo description
-- Add shields.io to README

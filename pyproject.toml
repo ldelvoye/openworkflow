@@ -1,10 +1,17 @@
 [project]
 name = "smorg"
-version = "1.3.1"
+version = "1.3.2"
 description = "Keyboard-driven terminal dashboard, one tab per connected integration"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
+# Each version here is exercised by the test suite; shields' pyversions badge
+# renders this list.
+classifiers = [
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = [
     "httpx>=0.28",
     "keyring>=25.0",
