@@ -3,7 +3,6 @@
 ## New integrations
 
 - Claude Code stats (may require disk read permissions)
-- Spotify (read-only first, this is the first candidate for restricted write permissions, but initial implementation does not need it)
 - Google Calendar
 - Slack
 - Sentry
@@ -20,6 +19,11 @@
 - Add profile recap (github green), revamp UI
 - Add gh login auth method
 - (Token) For SAML/SSO companies, add a redirect link to the user's token page so they can re-auth SSO
+
+
+### Spotify
+
+- `add to queue` and `play now` features
 
 
 ## General capabilities
