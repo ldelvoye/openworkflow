@@ -1,0 +1,25 @@
+{
+  "device": { "id": "d1", "is_active": true, "volume_percent": 60 },
+  "shuffle_state": false,
+  "repeat_state": "off",
+  "timestamp": 1755640800000,
+  "context": {
+    "type": "album",
+    "href": "https://api.spotify.com/v1/albums/1XkGORuUX2QGOEIL4EbJKm",
+    "external_urls": { "spotify": "https://open.spotify.com/album/1XkGORuUX2QGOEIL4EbJKm" },
+    "uri": "spotify:album:1XkGORuUX2QGOEIL4EbJKm"
+  },
+  "progress_ms": 45000,
+  "item": {
+    "id": "3n3Ppam7vgaVa1iaRUc9Lp",
+    "name": "Mr. Brightside",
+    "artists": [{ "id": "0C0XlULifJtAgn6ZNCW2eu", "name": "The Killers" }],
+    "album": { "id": "1XkGORuUX2QGOEIL4EbJKm", "name": "Hot Fuss" },
+    "external_urls": { "spotify": "https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp" },
+    "duration_ms": 222973,
+    "type": "track"
+  },
+  "currently_playing_type": "track",
+  "is_playing": true,
+  "actions": { "disallows": { "resuming": true } }
+}

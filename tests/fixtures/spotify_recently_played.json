@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "track": {
+        "id": "6habFhsOp2NvshLv26DqMb",
+        "name": "Do I Wanna Know?",
+        "artists": [{ "id": "7Ln80lUS6He07XvHI8qqHH", "name": "Arctic Monkeys" }],
+        "album": { "id": "3xOo8eu2mS0FUFHfydOZL0", "name": "AM" },
+        "external_urls": { "spotify": "https://open.spotify.com/track/6habFhsOp2NvshLv26DqMb" }
+      },
+      "played_at": "2026-08-20T11:30:00.000Z",
+      "context": null
+    }
+  ],
+  "next": null,
+  "cursors": { "after": "1755689400000", "before": "1755689400000" },
+  "limit": 1,
+  "href": "https://api.spotify.com/v1/me/player/recently-played?limit=1"
+}

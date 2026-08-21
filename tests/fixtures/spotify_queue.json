@@ -1,0 +1,34 @@
+{
+  "currently_playing": {
+    "id": "3n3Ppam7vgaVa1iaRUc9Lp",
+    "name": "Mr. Brightside",
+    "artists": [{ "id": "0C0XlULifJtAgn6ZNCW2eu", "name": "The Killers" }],
+    "album": { "id": "1XkGORuUX2QGOEIL4EbJKm", "name": "Hot Fuss" },
+    "external_urls": { "spotify": "https://open.spotify.com/track/3n3Ppam7vgaVa1iaRUc9Lp" },
+    "duration_ms": 222973,
+    "type": "track"
+  },
+  "queue": [
+    {
+      "id": "1301WleyT98MSxVHPZCA6M",
+      "name": "Feel Good Inc.",
+      "artists": [
+        { "id": "3AA28KZvwAUcZuOKwyblJQ", "name": "Gorillaz" },
+        { "id": "0V6d6DGXvvXQzHhI4Y6qNW", "name": "De La Soul" }
+      ],
+      "album": { "id": "0dv8VClAlttw86Zex7GVJi", "name": "Demon Days" },
+      "external_urls": { "spotify": "https://open.spotify.com/track/1301WleyT98MSxVHPZCA6M" },
+      "duration_ms": 219146,
+      "type": "track"
+    },
+    {
+      "id": "0eGsygTp906u18L0Oimnem",
+      "name": "Take On Me",
+      "artists": [{ "id": "0OU8jZtsjE29Zk9nc754wp", "name": "a-ha" }],
+      "album": { "id": "5PFcCizSVYbwT3JOkbnQjW", "name": "Hunting High and Low" },
+      "external_urls": { "spotify": "https://open.spotify.com/track/0eGsygTp906u18L0Oimnem" },
+      "duration_ms": 225573,
+      "type": "track"
+    }
+  ]
+}
