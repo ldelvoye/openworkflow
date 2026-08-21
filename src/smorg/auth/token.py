@@ -18,20 +18,16 @@ from smorg.auth.store import Credentials
 
 __all__ = [
     "InvalidToken",
-    "TokenPrompt",
+    "TokenMethod",
     "accepted_token",
     "credentials_from_token",
 ]
 
 
 @dataclass(frozen=True)
-class TokenPrompt:
-    """What to tell someone who has to go and create a token themselves.
-
-    label -> Github personal access token
-    help_url -> https://github.com/settings/tokens/new
-    scopes_hint -> read:user, read:org
-    """
+class TokenMethod:
+    """The user creates a token in the service and pastes it in; the fields are the prompt that
+    tells them how."""
 
     label: str
     help_url: str

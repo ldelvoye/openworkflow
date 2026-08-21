@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
 
-from smorg.auth.oauth import ProviderConfig
+from smorg.auth.oauth import OAuthMethod
 from smorg.auth.store import Credentials
-from smorg.auth.token import TokenPrompt
+from smorg.auth.token import TokenMethod
 from smorg.core.keys import RESERVED_KEYS
 
 if TYPE_CHECKING:
@@ -52,9 +52,9 @@ class Item:
 
 
 @dataclass(frozen=True)
-class ConnectionPath:
+class AuthPath:
     id: str
-    method: ProviderConfig | TokenPrompt
+    method: OAuthMethod | TokenMethod
 
 
 def _duplicates(values: Sequence[str]) -> list[str]:
@@ -66,7 +66,7 @@ def _duplicates(values: Sequence[str]) -> list[str]:
 class Manifest:
     id: str
     display_name: str
-    connections: tuple[ConnectionPath, ...]
+    connections: tuple[AuthPath, ...]
     stale_after: timedelta
     actions: tuple[Action, ...]
 
@@ -90,7 +90,7 @@ class Manifest:
                 f"duplicate connection path id(s) in {self.id}: {duplicate_connections}"
             )
 
-    def connection(self, chosen: str | None) -> ConnectionPath:
+    def connection(self, chosen: str | None) -> AuthPath:
         """The declared path for a config-recorded id; None (nothing recorded yet) means the
         first declared path. The single resolver: call sites never index connections directly.
         """

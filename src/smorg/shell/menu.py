@@ -20,16 +20,16 @@ from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from smorg.auth.login import LoginCancelled, perform_login
-from smorg.auth.oauth import OAuthError, ProviderConfig, extra_scopes_warning
+from smorg.auth.oauth import OAuthError, OAuthMethod, extra_scopes_warning
 from smorg.auth.store import Credentials, CredentialStoreError, set_credentials
 from smorg.auth.token import (
     InvalidToken,
-    TokenPrompt,
+    TokenMethod,
     accepted_token,
     credentials_from_token,
 )
 from smorg.core.config import ConfigError, TabConfig, add_tab, load_config, save_config
-from smorg.core.contract import ConnectionPath
+from smorg.core.contract import AuthPath
 from smorg.core.registry import UnknownIntegration, get_integration, manifests
 from smorg.core.removal import RemovalResult, remove_integration, revoke_best_effort
 from smorg.core.text import sanitize_line, truncate
@@ -207,7 +207,7 @@ class RemoveConfirmModal(ManagementScreen):
 class AddableIntegration:
     integration_id: str
     display_name: str
-    connections: tuple[ConnectionPath, ...]
+    connections: tuple[AuthPath, ...]
 
 
 def addable_integrations() -> tuple[AddableIntegration, ...]:
@@ -300,9 +300,9 @@ async def open_tab_for(
     app.notify(f"connected {display_name}")
 
 
-def connect_screen_for(integration: AddableIntegration, path: ConnectionPath) -> ManagementScreen:
+def connect_screen_for(integration: AddableIntegration, path: AuthPath) -> ManagementScreen:
     """Which connect screen a chosen path leads to"""
-    if isinstance(path.method, TokenPrompt):
+    if isinstance(path.method, TokenMethod):
         return TokenModal(integration.integration_id, integration.display_name, path)
     return ConnectModal(integration.integration_id, integration.display_name, path)
 
@@ -347,10 +347,10 @@ class TokenModal(ManagementScreen):
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
-    def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
+    def __init__(self, integration_id: str, display_name: str, path: AuthPath) -> None:
         super().__init__()
         prompt = path.method
-        assert isinstance(prompt, TokenPrompt), "TokenModal is only reached for a token path"
+        assert isinstance(prompt, TokenMethod), "TokenModal is only reached for a token path"
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path
@@ -406,12 +406,10 @@ class ConnectModal(ManagementScreen):
 
     BINDINGS = [Binding("escape", "cancel", "cancel", show=False)]
 
-    def __init__(self, integration_id: str, display_name: str, path: ConnectionPath) -> None:
+    def __init__(self, integration_id: str, display_name: str, path: AuthPath) -> None:
         super().__init__()
         provider = path.method
-        assert isinstance(provider, ProviderConfig), (
-            "ConnectModal is only reached for an OAuth path"
-        )
+        assert isinstance(provider, OAuthMethod), "ConnectModal is only reached for an OAuth path"
         self.integration_id = integration_id
         self.display_name = display_name
         self.path = path

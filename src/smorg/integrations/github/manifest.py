@@ -1,4 +1,4 @@
-"""GitHub's declaration; connects with a personal access token."""
+"""GitHub's declaration; connects with a personal access token and reads the REST API."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from datetime import timedelta
 import httpx
 
 from smorg.auth.store import Credentials
-from smorg.auth.token import TokenPrompt
-from smorg.core.contract import Action, ActionClass, ConnectionPath, Item, Manifest
+from smorg.auth.token import TokenMethod
+from smorg.core.contract import Action, ActionClass, AuthPath, Item, Manifest
 from smorg.integrations.github.panel import GitHubPanel
 from smorg.integrations.github.source import (
     PullRequest,
@@ -18,7 +18,7 @@ from smorg.integrations.github.source import (
     fetch_detail,
 )
 
-TOKEN = TokenPrompt(
+TOKEN = TokenMethod(
     label="GitHub personal access token",
     help_url="https://github.com/settings/personal-access-tokens",
     scopes_hint=(
@@ -30,7 +30,7 @@ TOKEN = TokenPrompt(
 MANIFEST = Manifest(
     id="github",
     display_name="GitHub",
-    connections=(ConnectionPath(id="token", method=TOKEN),),
+    connections=(AuthPath(id="token", method=TOKEN),),
     # Keep above 5min to avoid rate limiting
     stale_after=timedelta(minutes=5),
     actions=(Action(id="open", label="Open in GitHub", key="o", action_class=ActionClass.LAUNCH),),

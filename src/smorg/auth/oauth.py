@@ -1,6 +1,6 @@
 """OAuth 2.1: discovery, dynamic client registration, PKCE, refresh, revocation.
 
-An integration supplies a ProviderConfig and gets Credentials back; nothing here
+An integration supplies a OAuthMethod and gets Credentials back; nothing here
 knows which service is on the other end. Registration asks for a public client,
 so no client secret exists anywhere in this flow; PKCE is what binds the
 authorization code to the process that requested it.
@@ -28,7 +28,7 @@ __all__ = [
     "REGISTERED_REDIRECT_URI",
     "REGISTRATION_PORT",
     "OAuthError",
-    "ProviderConfig",
+    "OAuthMethod",
     "ServerMetadata",
     "build_authorize_url",
     "discover",
@@ -58,7 +58,10 @@ class OAuthError(Exception):
 
 
 @dataclass(frozen=True)
-class ProviderConfig:
+class OAuthMethod:
+    """Authorize in the browser: the metadata document to discover, the scopes to request, and the
+    client name to register."""
+
     metadata_url: str
     scopes: tuple[str, ...]
     client_name: str
@@ -106,7 +109,7 @@ def _require_https_if_present(url: str | None, name: str) -> str | None:
     return None if url is None else _require_https(url, name)
 
 
-def discover(client: httpx.Client, provider: ProviderConfig) -> ServerMetadata:
+def discover(client: httpx.Client, provider: OAuthMethod) -> ServerMetadata:
     try:
         response = client.get(provider.metadata_url)
     except httpx.HTTPError as error:
@@ -131,7 +134,7 @@ def discover(client: httpx.Client, provider: ProviderConfig) -> ServerMetadata:
 def register_client(
     client: httpx.Client,
     metadata: ServerMetadata,
-    provider: ProviderConfig,
+    provider: OAuthMethod,
     redirect_uri: str,
 ) -> str:
     try:
@@ -284,7 +287,7 @@ def refresh_credentials(
 
 
 def extra_scopes_warning(
-    integration_id: str, display_name: str, provider: ProviderConfig, credentials: Credentials
+    integration_id: str, display_name: str, provider: OAuthMethod, credentials: Credentials
 ) -> str | None:
     """None when the provider granted nothing beyond what was requested.
 

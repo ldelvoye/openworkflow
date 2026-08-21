@@ -20,7 +20,7 @@ from smorg.auth.store import (
     now,
     set_credentials,
 )
-from smorg.auth.token import InvalidToken, TokenPrompt, accepted_token, credentials_from_token
+from smorg.auth.token import InvalidToken, TokenMethod, accepted_token, credentials_from_token
 from smorg.core.config import (
     Config,
     ConfigError,
@@ -31,7 +31,7 @@ from smorg.core.config import (
     save_config,
     tab_for,
 )
-from smorg.core.contract import ConnectionPath, Integration
+from smorg.core.contract import AuthPath, Integration
 from smorg.core.path_setup import append_once, bin_dir_needing_setup, shell_setup
 from smorg.core.registry import UnknownIntegration, get_integration, known_integration_ids
 from smorg.core.removal import remove_integration, revoke_best_effort
@@ -41,7 +41,7 @@ from smorg.shell.terminal_palette import query_terminal_palette
 
 def run_login(
     client: httpx.Client,
-    provider: oauth.ProviderConfig,
+    provider: oauth.OAuthMethod,
     client_id: str | None,
     port: int = 0,
     timeout: float = LOGIN_TIMEOUT_SECONDS,
@@ -74,7 +74,7 @@ def _connect(integration_id: str) -> int:
         return 1
 
     method = path.method
-    if isinstance(method, TokenPrompt):
+    if isinstance(method, TokenMethod):
         return _connect_with_token(integration, config, path, method)
 
     provider = method
@@ -104,7 +104,7 @@ def _connect(integration_id: str) -> int:
 
 
 def _connect_with_token(
-    integration: Integration, config: Config, path: ConnectionPath, prompt: TokenPrompt
+    integration: Integration, config: Config, path: AuthPath, prompt: TokenMethod
 ) -> int:
     """Ask for a token the user created themselves and store it.
 
@@ -139,7 +139,7 @@ def _connect_with_token(
 
 
 def _warn_on_extra_scopes(
-    integration: Integration, provider: oauth.ProviderConfig, credentials: Credentials
+    integration: Integration, provider: oauth.OAuthMethod, credentials: Credentials
 ) -> None:
     warning = extra_scopes_warning(
         integration.manifest.id, integration.manifest.display_name, provider, credentials

@@ -17,8 +17,8 @@ import tomli_w
 
 if TYPE_CHECKING:
     # Deferred: contract.py's import chain (auth.oauth -> auth.store) loops back to this module,
-    # so importing for real would cycle; Manifest/ConnectionPath are only used in type positions.
-    from smorg.core.contract import ConnectionPath, Manifest
+    # so importing for real would cycle; Manifest/AuthPath are only used in type positions.
+    from smorg.core.contract import AuthPath, Manifest
 
 CONFIG_DIR_ENV = "SMORG_CONFIG_DIR"
 DIRECTORY_MODE = 0o700
@@ -163,9 +163,7 @@ def tab_for(config: Config, integration_id: str) -> TabConfig | None:
     return None
 
 
-def resolve_connection(
-    manifest: Manifest, tab: TabConfig | None
-) -> tuple[ConnectionPath, str | None]:
+def resolve_connection(manifest: Manifest, tab: TabConfig | None) -> tuple[AuthPath, str | None]:
     """The connection path a possibly-unconfigured tab uses, and its client id. Raises ValueError
     when tab.connection names a path no longer declared.
     """

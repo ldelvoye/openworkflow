@@ -25,7 +25,7 @@ class RemovalResult:
 
 
 def revoke_best_effort(
-    provider: oauth.ProviderConfig, client_id: str, credentials: Credentials
+    provider: oauth.OAuthMethod, client_id: str, credentials: Credentials
 ) -> bool:
     """Ask the provider to revoke a token.
 
@@ -67,7 +67,7 @@ def remove_integration(integration_id: str) -> RemovalResult:
             path = None  # a stale connection id must not block deletion
 
         # Only try to revoke OAuth tokens: a pasted token has no provider to ask
-        if path is not None and isinstance(path.method, oauth.ProviderConfig):
+        if path is not None and isinstance(path.method, oauth.OAuthMethod):
             revoked = revoke_best_effort(path.method, tab.client_id, credentials)
 
     # Credentials before config: dropping the tab first could strand credentials with nothing left

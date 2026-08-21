@@ -4,13 +4,13 @@ from datetime import UTC, datetime, timedelta
 import httpx
 import pytest
 
-from smorg.auth.oauth import ProviderConfig
+from smorg.auth.oauth import OAuthMethod
 from smorg.auth.refresh import EXPIRY_MARGIN, credentials_for, fresh_credentials
 from smorg.auth.store import Credentials, get_credentials, set_credentials
-from smorg.auth.token import TokenPrompt
-from smorg.core.contract import AuthExpired, ConnectionPath
+from smorg.auth.token import TokenMethod
+from smorg.core.contract import AuthExpired, AuthPath
 
-PROVIDER = ProviderConfig(
+PROVIDER = OAuthMethod(
     metadata_url="https://auth.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",
@@ -175,13 +175,13 @@ def test_the_refresh_request_is_a_refresh_grant_for_the_stored_token():
 
 # --- A token path has nothing behind it to renew ---
 
-TOKEN_PATH = ConnectionPath(
+TOKEN_PATH = AuthPath(
     id="token",
-    method=TokenPrompt(
+    method=TokenMethod(
         label="API token", help_url="https://example.invalid/tokens", scopes_hint="read"
     ),
 )
-OAUTH_PATH = ConnectionPath(id="oauth", method=PROVIDER)
+OAUTH_PATH = AuthPath(id="oauth", method=PROVIDER)
 
 
 def test_a_token_path_is_handed_its_stored_credentials_untouched():

@@ -13,10 +13,10 @@ from datetime import timedelta
 import httpx
 
 from smorg.auth import oauth
-from smorg.auth.oauth import OAuthError, ProviderConfig
+from smorg.auth.oauth import OAuthError, OAuthMethod
 from smorg.auth.store import Credentials, get_credentials, now, set_credentials
-from smorg.auth.token import TokenPrompt
-from smorg.core.contract import AuthExpired, ConnectionPath
+from smorg.auth.token import TokenMethod
+from smorg.core.contract import AuthExpired, AuthPath
 
 # How close to expiry counts as expired: covers clock skew against the
 # provider plus the gap between this check and the request using the token.
@@ -39,13 +39,13 @@ def _expiring(credentials: Credentials) -> bool:
 
 def credentials_for(
     integration_id: str,
-    path: ConnectionPath,
+    path: AuthPath,
     client_id: str | None,
     http: httpx.Client,
 ) -> Credentials | None:
     """The credentials a fetch should use, renewed first where that is possible."""
     method = path.method
-    if isinstance(method, TokenPrompt):
+    if isinstance(method, TokenMethod):
         return get_credentials(integration_id)
 
     return fresh_credentials(integration_id, method, client_id, http)
@@ -53,7 +53,7 @@ def credentials_for(
 
 def fresh_credentials(
     integration_id: str,
-    provider: ProviderConfig,
+    provider: OAuthMethod,
     client_id: str | None,
     http: httpx.Client,
 ) -> Credentials | None:

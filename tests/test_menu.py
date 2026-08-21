@@ -8,11 +8,11 @@ import pytest
 from textual.widgets import Input, Static, TabPane
 
 from smorg.auth.login import LoginCancelled
-from smorg.auth.oauth import ProviderConfig
+from smorg.auth.oauth import OAuthMethod
 from smorg.auth.store import Credentials, CredentialStoreError, get_credentials, set_credentials
-from smorg.auth.token import TokenPrompt
+from smorg.auth.token import TokenMethod
 from smorg.core.config import Config, TabConfig, load_config, save_config
-from smorg.core.contract import ConnectionPath, Item, Manifest
+from smorg.core.contract import AuthPath, Item, Manifest
 from smorg.core.removal import RemovalResult
 from smorg.core.state import SeenState
 from smorg.integrations.linear.manifest import LinearIntegration
@@ -44,26 +44,26 @@ LIVE = Credentials(
 )
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
-WIDGET_PROVIDER = ProviderConfig(
+WIDGET_PROVIDER = OAuthMethod(
     metadata_url="https://widget.example.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",
 )
-WIDGET_TOKEN = TokenPrompt(
+WIDGET_TOKEN = TokenMethod(
     label="Widget access token",
     help_url="https://widget.example.invalid/settings/tokens",
     scopes_hint="read access to widgets",
 )
 # Wider than the modal's box on every line, so what it draws can only be
 # right if the box wrapped it.
-WORDY_TOKEN = TokenPrompt(
+WORDY_TOKEN = TokenMethod(
     label="Widget access token",
     help_url="https://widget.example.invalid/settings/tokens/new",
     scopes_hint="read access to widgets and their metadata, or the widgets scope",
 )
-TOKEN_PATH = ConnectionPath(id="token", method=WIDGET_TOKEN)
-WORDY_TOKEN_PATH = ConnectionPath(id="token", method=WORDY_TOKEN)
-OAUTH_PATH = ConnectionPath(id="mcp", method=WIDGET_PROVIDER)
+TOKEN_PATH = AuthPath(id="token", method=WIDGET_TOKEN)
+WORDY_TOKEN_PATH = AuthPath(id="token", method=WORDY_TOKEN)
+OAUTH_PATH = AuthPath(id="mcp", method=WIDGET_PROVIDER)
 PASTED = "widget_pat_0abcdefghijklmnop"
 
 
@@ -87,7 +87,7 @@ def _drawn(widget: Static) -> str:
 
 def fake_manifest(
     identifier: str = "widget",
-    connections: tuple[ConnectionPath, ...] = (ConnectionPath(id="mcp", method=WIDGET_PROVIDER),),
+    connections: tuple[AuthPath, ...] = (AuthPath(id="mcp", method=WIDGET_PROVIDER),),
 ) -> Manifest:
     return Manifest(
         id=identifier,
@@ -415,8 +415,8 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
 
 
 def test_addable_integrations_excludes_configured_ones_and_lists_paths_in_order(registered):
-    mcp = ConnectionPath(id="mcp", method=WIDGET_PROVIDER)
-    api = ConnectionPath(id="api", method=WIDGET_PROVIDER)
+    mcp = AuthPath(id="mcp", method=WIDGET_PROVIDER)
+    api = AuthPath(id="api", method=WIDGET_PROVIDER)
     registered(fake_manifest("widget", connections=(mcp, api)), fake_manifest("gadget"))
     save_config(Config(tabs=(TabConfig(integration="gadget"),)))
 
