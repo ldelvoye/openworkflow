@@ -65,10 +65,12 @@ class DiscoveredProvider:
 @dataclass(frozen=True)
 class StaticProvider:
     """No discovery or registration: endpoints are declared here, and the user creates the OAuth
-    app themselves (at help_url) and pastes its client id."""
+    app themselves (at help_url, with setup_hint naming the provider-specific step the app-creation
+    form needs beyond the redirect uri) and pastes its client id."""
 
     metadata: ServerMetadata
     help_url: str
+    setup_hint: str
 
 
 @dataclass(frozen=True)

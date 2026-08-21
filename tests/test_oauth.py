@@ -318,6 +318,7 @@ STATIC = OAuthMethod(
     provider=StaticProvider(
         metadata=STATIC_METADATA,
         help_url="https://developer.example.invalid/dashboard",
+        setup_hint="tick the example api box",
     ),
     scopes=("read",),
 )

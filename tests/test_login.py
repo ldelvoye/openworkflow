@@ -199,6 +199,7 @@ STATIC = oauth.OAuthMethod(
             token_endpoint=METADATA["token_endpoint"],
         ),
         help_url="https://developer.example.invalid/dashboard",
+        setup_hint="tick the example api box",
     ),
     scopes=("read",),
 )

@@ -80,7 +80,7 @@ def test_version_flag_omits_dev_on_a_release_build(monkeypatch, capsys):
 
 
 def test_the_allowlist_is_what_this_build_registers():
-    assert known_integration_ids() == ("github", "linear")
+    assert known_integration_ids() == ("github", "linear", "spotify")
 
 
 def test_connect_rejects_an_unknown_integration(capsys):
@@ -397,6 +397,7 @@ STATIC_MANIFEST = Manifest(
                         token_endpoint="https://accounts.widget.invalid/token",
                     ),
                     help_url="https://developer.widget.invalid/apps",
+                    setup_hint="tick the widget api box",
                 ),
                 scopes=("read",),
             ),
@@ -426,6 +427,7 @@ def test_connect_prompts_for_a_client_id_on_a_static_path(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "https://developer.widget.invalid/apps" in out
     assert "http://127.0.0.1:8765/callback" in out
+    assert "tick the widget api box" in out
     assert logins == ["client-static"]
     expected = TabConfig(integration="widget", client_id="client-static", connection="oauth")
     assert load_config().tabs == (expected,)

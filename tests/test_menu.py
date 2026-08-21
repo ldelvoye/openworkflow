@@ -80,6 +80,7 @@ WIDGET_STATIC = OAuthMethod(
             token_endpoint="https://widget.example.invalid/token",
         ),
         help_url="https://widget.example.invalid/developer/apps",
+        setup_hint="tick the widget api box",
     ),
     scopes=("read",),
 )
@@ -1031,6 +1032,7 @@ def test_the_client_id_modal_says_where_to_create_the_app():
     text = screen.body_text()
     assert "https://widget.example.invalid/developer/apps" in text
     assert REGISTERED_REDIRECT_URI in text
+    assert "tick the widget api box" in text
 
 
 @pytest.mark.asyncio

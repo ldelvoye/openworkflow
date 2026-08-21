@@ -21,8 +21,9 @@ Inside the dashboard: `h`/`l` switch tabs, `up`/`down` select an item, `o` opens
 
 ## Status
 
-Two dishes on the table:
+Three dishes on the table:
 * **Linear**, showing the issues assigned to you
 * **GitHub**, showing what needs your attention
+* **Spotify**, showing your player: now playing, queue, last played
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for what's ahead.
