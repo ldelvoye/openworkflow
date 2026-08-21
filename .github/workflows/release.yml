@@ -43,4 +43,4 @@ jobs:
             exit 1
           fi
       - run: uv build
-      - run: uv publish
+      - uses: pypa/gh-action-pypi-publish@release/v1

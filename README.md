@@ -1,5 +1,10 @@
 # smorg
 
+[![PyPI](https://img.shields.io/pypi/v/smorg)](https://pypi.org/project/smorg/)
+[![Python](https://img.shields.io/pypi/pyversions/smorg)](https://pypi.org/project/smorg/)
+[![CI](https://img.shields.io/github/actions/workflow/status/ldelvoye/smorg/ci.yml?branch=main&label=ci)](https://github.com/ldelvoye/smorg/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/ldelvoye/smorg)](LICENSE)
+
 Short for [Smorgasbord](https://en.wikipedia.org/wiki/Smorgasbord): a table laid out with many dishes, everyone taking what they want.
 
 smorg is that table for your work: a keyboard-driven CLI with one tab per connected integration, showing what's on your plate and what changes since you last looked.
