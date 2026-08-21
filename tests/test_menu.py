@@ -8,7 +8,13 @@ import pytest
 from textual.widgets import Input, Static, TabPane
 
 from smorg.auth.login import LoginCancelled
-from smorg.auth.oauth import OAuthMethod
+from smorg.auth.oauth import (
+    REGISTERED_REDIRECT_URI,
+    DiscoveredProvider,
+    OAuthMethod,
+    ServerMetadata,
+    StaticProvider,
+)
 from smorg.auth.store import Credentials, CredentialStoreError, get_credentials, set_credentials
 from smorg.auth.token import TokenMethod
 from smorg.core.config import Config, TabConfig, load_config, save_config
@@ -23,17 +29,18 @@ from smorg.shell.menu import (
     AddableIntegration,
     AddConnectionList,
     AddIntegrationList,
+    ClientIdModal,
     ConnectModal,
     MenuCommands,
     RemovableTab,
     RemoveConfirmModal,
     RemoveIntegrationList,
     TokenModal,
-    _upgrade_failure_toast,
     addable_integrations,
     connect_screen_for,
     removable_tabs,
 )
+from smorg.shell.menu.commands import _upgrade_failure_toast
 from smorg.shell.panel import Panel
 
 LIVE = Credentials(
@@ -44,10 +51,12 @@ LIVE = Credentials(
 )
 NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
-WIDGET_PROVIDER = OAuthMethod(
-    metadata_url="https://widget.example.invalid/.well-known/oauth-authorization-server",
+WIDGET_METHOD = OAuthMethod(
+    provider=DiscoveredProvider(
+        metadata_url="https://widget.example.invalid/.well-known/oauth-authorization-server",
+        client_name="smorg",
+    ),
     scopes=("read",),
-    client_name="smorg",
 )
 WIDGET_TOKEN = TokenMethod(
     label="Widget access token",
@@ -63,7 +72,18 @@ WORDY_TOKEN = TokenMethod(
 )
 TOKEN_PATH = AuthPath(id="token", method=WIDGET_TOKEN)
 WORDY_TOKEN_PATH = AuthPath(id="token", method=WORDY_TOKEN)
-OAUTH_PATH = AuthPath(id="mcp", method=WIDGET_PROVIDER)
+OAUTH_PATH = AuthPath(id="mcp", method=WIDGET_METHOD)
+WIDGET_STATIC = OAuthMethod(
+    provider=StaticProvider(
+        metadata=ServerMetadata(
+            authorization_endpoint="https://widget.example.invalid/authorize",
+            token_endpoint="https://widget.example.invalid/token",
+        ),
+        help_url="https://widget.example.invalid/developer/apps",
+    ),
+    scopes=("read",),
+)
+STATIC_PATH = AuthPath(id="oauth", method=WIDGET_STATIC)
 PASTED = "widget_pat_0abcdefghijklmnop"
 
 
@@ -87,7 +107,7 @@ def _drawn(widget: Static) -> str:
 
 def fake_manifest(
     identifier: str = "widget",
-    connections: tuple[AuthPath, ...] = (AuthPath(id="mcp", method=WIDGET_PROVIDER),),
+    connections: tuple[AuthPath, ...] = (AuthPath(id="mcp", method=WIDGET_METHOD),),
 ) -> Manifest:
     return Manifest(
         id=identifier,
@@ -363,7 +383,7 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
         release.wait(timeout=5)
         return RemovalResult(supported=True, had_credentials=False, revoked=False, tab_removed=True)
 
-    monkeypatch.setattr("smorg.shell.menu.remove_integration", blocked_removal)
+    monkeypatch.setattr("smorg.shell.menu.remove.remove_integration", blocked_removal)
 
     refreshed: list[str] = []
     monkeypatch.setattr(
@@ -415,8 +435,8 @@ async def test_nothing_else_happens_while_a_removal_is_in_flight(monkeypatch):
 
 
 def test_addable_integrations_excludes_configured_ones_and_lists_paths_in_order(registered):
-    mcp = AuthPath(id="mcp", method=WIDGET_PROVIDER)
-    api = AuthPath(id="api", method=WIDGET_PROVIDER)
+    mcp = AuthPath(id="mcp", method=WIDGET_METHOD)
+    api = AuthPath(id="api", method=WIDGET_METHOD)
     registered(fake_manifest("widget", connections=(mcp, api)), fake_manifest("gadget"))
     save_config(Config(tabs=(TabConfig(integration="gadget"),)))
 
@@ -507,7 +527,7 @@ async def test_selecting_a_path_hands_off_to_the_connect_modal_and_dismisses_its
         release.wait(timeout=5)
         raise LoginCancelled("test release")
 
-    monkeypatch.setattr("smorg.shell.menu.perform_login", blocked_login)
+    monkeypatch.setattr("smorg.shell.menu.connect.perform_login", blocked_login)
 
     app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
@@ -561,7 +581,7 @@ async def test_escape_during_the_wait_cancels_cleanly(registered, monkeypatch):
         cancelled.wait(timeout=5)
         raise LoginCancelled("cancelled by the user")
 
-    monkeypatch.setattr("smorg.shell.menu.perform_login", blocked_login)
+    monkeypatch.setattr("smorg.shell.menu.connect.perform_login", blocked_login)
     notified: list[str] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.notify",
@@ -597,7 +617,7 @@ async def test_connecting_succeeds_from_the_empty_state(registered, monkeypatch)
         on_authorize_url("https://widget.example.invalid/authorize?state=abc")
         return "client-abc", credentials
 
-    monkeypatch.setattr("smorg.shell.menu.perform_login", fake_login)
+    monkeypatch.setattr("smorg.shell.menu.connect.perform_login", fake_login)
 
     app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
@@ -634,12 +654,12 @@ async def test_a_credential_store_failure_revokes_the_token_and_stores_nothing(
     def fake_login(client, provider, client_id, *, on_authorize_url, cancelled=None, **kwargs):
         return "client-abc", credentials
 
-    monkeypatch.setattr("smorg.shell.menu.perform_login", fake_login)
+    monkeypatch.setattr("smorg.shell.menu.connect.perform_login", fake_login)
 
     def refuse(integration_id, creds):
         raise CredentialStoreError("keychain refused")
 
-    monkeypatch.setattr("smorg.shell.menu.set_credentials", refuse)
+    monkeypatch.setattr("smorg.shell.menu.connect.set_credentials", refuse)
 
     revoked: list[tuple] = []
 
@@ -647,7 +667,7 @@ async def test_a_credential_store_failure_revokes_the_token_and_stores_nothing(
         revoked.append(args)
         return True
 
-    monkeypatch.setattr("smorg.shell.menu.revoke_best_effort", fake_revoke)
+    monkeypatch.setattr("smorg.shell.menu.connect.revoke_best_effort", fake_revoke)
 
     app = SmorgApp(tabs=())
     async with app.run_test() as pilot:
@@ -834,7 +854,7 @@ async def test_a_store_that_refuses_a_token_records_no_tab(registered, monkeypat
     def refuse(integration_id, credentials):
         raise CredentialStoreError("keychain refused")
 
-    monkeypatch.setattr("smorg.shell.menu.set_credentials", refuse)
+    monkeypatch.setattr("smorg.shell.menu.connect.set_credentials", refuse)
     notified: list[str] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.notify",
@@ -877,10 +897,10 @@ async def test_the_upgrade_command_is_offered_only_when_an_update_is_known():
 async def test_selecting_the_upgrade_entry_with_no_known_install_method_toasts_and_runs_nothing(
     monkeypatch,
 ):
-    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: None)
+    monkeypatch.setattr("smorg.shell.menu.commands.upgrade_command", lambda: None)
     run_calls: list[list[str]] = []
     monkeypatch.setattr(
-        "smorg.shell.menu.subprocess.run",
+        "smorg.shell.menu.commands.subprocess.run",
         lambda argv, **kwargs: run_calls.append(argv),
     )
     notified: list[str] = []
@@ -910,14 +930,16 @@ async def test_selecting_the_upgrade_entry_with_no_known_install_method_toasts_a
 async def test_selecting_the_upgrade_entry_runs_the_detected_command_and_toasts_on_success(
     monkeypatch,
 ):
-    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: "uv tool upgrade smorg")
+    monkeypatch.setattr(
+        "smorg.shell.menu.commands.upgrade_command", lambda: "uv tool upgrade smorg"
+    )
     run_calls: list[list[str]] = []
 
     def fake_run(argv, **kwargs):
         run_calls.append(argv)
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("smorg.shell.menu.subprocess.run", fake_run)
+    monkeypatch.setattr("smorg.shell.menu.commands.subprocess.run", fake_run)
     notified: list[str] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.notify",
@@ -942,13 +964,15 @@ async def test_selecting_the_upgrade_entry_runs_the_detected_command_and_toasts_
 
 @pytest.mark.asyncio
 async def test_a_failed_upgrade_toasts_the_command_and_a_stderr_tail(monkeypatch):
-    monkeypatch.setattr("smorg.shell.menu.upgrade_command", lambda: "uv tool upgrade smorg")
+    monkeypatch.setattr(
+        "smorg.shell.menu.commands.upgrade_command", lambda: "uv tool upgrade smorg"
+    )
 
     def fake_run(argv, **kwargs):
         stderr = "Resolving dependencies...\nerror: no such package: smorg\n"
         return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr=stderr)
 
-    monkeypatch.setattr("smorg.shell.menu.subprocess.run", fake_run)
+    monkeypatch.setattr("smorg.shell.menu.commands.subprocess.run", fake_run)
     notified: list[tuple[str, str | None]] = []
     monkeypatch.setattr(
         "smorg.shell.app.SmorgApp.notify",
@@ -990,3 +1014,77 @@ def test_upgrade_failure_toast_falls_back_when_stderr_is_empty():
     message = _upgrade_failure_toast("uv tool upgrade smorg", "")
 
     assert message == "uv tool upgrade smorg failed: (unspecified)"
+
+
+# --- The static-oauth connect flow ---
+
+
+def test_a_static_oauth_path_leads_to_the_client_id_modal():
+    widget = AddableIntegration("widget", "Widget", (STATIC_PATH,))
+
+    assert isinstance(connect_screen_for(widget, STATIC_PATH), ClientIdModal)
+
+
+def test_the_client_id_modal_says_where_to_create_the_app():
+    screen = ClientIdModal("widget", "Widget", STATIC_PATH)
+
+    text = screen.body_text()
+    assert "https://widget.example.invalid/developer/apps" in text
+    assert REGISTERED_REDIRECT_URI in text
+
+
+@pytest.mark.asyncio
+async def test_a_submitted_client_id_hands_off_to_the_browser_modal(registered, monkeypatch):
+    registered(fake_manifest("widget", connections=(STATIC_PATH,)))
+    release = threading.Event()
+    logins: list[str | None] = []
+
+    def blocked_login(client, provider, client_id, *, on_authorize_url, cancelled=None, **kwargs):
+        logins.append(client_id)
+        release.wait(timeout=5)
+        raise LoginCancelled("test release")
+
+    monkeypatch.setattr("smorg.shell.menu.connect.perform_login", blocked_login)
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        modal = ClientIdModal("widget", "Widget", STATIC_PATH)
+        app.push_screen(modal)
+        await pilot.pause()
+
+        app.screen.query_one(Input).value = "client-static"
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert modal not in app.screen_stack
+        assert isinstance(app.screen, ConnectModal)
+        assert app.screen.client_id == "client-static"
+        await _wait_until(pilot, lambda: logins)
+        assert logins == ["client-static"]
+
+        release.set()
+        await _wait_until(pilot, lambda: not isinstance(app.screen, ConnectModal))
+        await pilot.pause()
+
+
+@pytest.mark.asyncio
+async def test_an_empty_client_id_keeps_the_modal_open(registered, monkeypatch):
+    registered(fake_manifest("widget", connections=(STATIC_PATH,)))
+    notified: list[str] = []
+    monkeypatch.setattr(
+        "smorg.shell.app.SmorgApp.notify",
+        lambda self, message, **kwargs: notified.append(message),
+    )
+
+    app = SmorgApp(tabs=())
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.push_screen(ClientIdModal("widget", "Widget", STATIC_PATH))
+        await pilot.pause()
+
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert isinstance(app.screen, ClientIdModal)
+        assert any("client id" in message for message in notified)

@@ -18,10 +18,12 @@ from smorg.auth.login import LoginCancelled, perform_login
 from smorg.cli import run_login
 
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
-PROVIDER = oauth.OAuthMethod(
-    metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
+METHOD = oauth.OAuthMethod(
+    provider=oauth.DiscoveredProvider(
+        metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
+        client_name="smorg",
+    ),
     scopes=("read",),
-    client_name="smorg",
 )
 TOKEN = {"access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "scope": "read"}
 
@@ -71,7 +73,7 @@ def browser_sending(monkeypatch, *paths: str) -> None:
 def test_login_returns_the_client_id_and_credentials(monkeypatch):
     browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
 
-    client_id, credentials = run_login(oauth_client(), PROVIDER, None, port=0, timeout=10)
+    client_id, credentials = run_login(oauth_client(), METHOD, None, port=0, timeout=10)
 
     assert client_id == "client-abc"
     assert credentials.access_token == "at-1"
@@ -87,7 +89,7 @@ def test_stray_requests_do_not_consume_the_login(monkeypatch):
         "/callback?code=code-1&state={state}",
     )
 
-    _, credentials = run_login(oauth_client(), PROVIDER, None, port=0, timeout=10)
+    _, credentials = run_login(oauth_client(), METHOD, None, port=0, timeout=10)
 
     assert credentials.access_token == "at-1"
 
@@ -108,7 +110,7 @@ def test_registration_is_stable_while_the_callback_port_is_not(monkeypatch):
     browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
     client = httpx.Client(transport=httpx.MockTransport(handler))
 
-    run_login(client, PROVIDER, None, port=0, timeout=10)
+    run_login(client, METHOD, None, port=0, timeout=10)
 
     assert seen["registered"] == oauth.REGISTERED_REDIRECT_URI
     assert seen["exchanged"] != seen["registered"]
@@ -121,7 +123,7 @@ def test_a_non_ascii_state_is_rejected_without_disturbing_the_login(monkeypatch)
         "/callback?code=code-1&state={state}",
     )
 
-    _, credentials = run_login(oauth_client(), PROVIDER, None, port=0, timeout=10)
+    _, credentials = run_login(oauth_client(), METHOD, None, port=0, timeout=10)
 
     assert credentials.access_token == "at-1"
 
@@ -130,21 +132,21 @@ def test_a_forged_error_cannot_abort_a_pending_login(monkeypatch):
     browser_sending(monkeypatch, "/callback?error=access_denied&state=forged")
 
     with pytest.raises(oauth.OAuthError, match="timed out"):
-        run_login(oauth_client(), PROVIDER, None, port=0, timeout=2)
+        run_login(oauth_client(), METHOD, None, port=0, timeout=2)
 
 
 def test_a_genuine_refusal_ends_the_login(monkeypatch):
     browser_sending(monkeypatch, "/callback?error=access_denied&state={state}")
 
     with pytest.raises(oauth.OAuthError, match="access_denied"):
-        run_login(oauth_client(), PROVIDER, None, port=0, timeout=10)
+        run_login(oauth_client(), METHOD, None, port=0, timeout=10)
 
 
 def test_error_text_cannot_carry_terminal_escapes(monkeypatch):
     browser_sending(monkeypatch, "/callback?error=denied%1b%5b31m&state={state}")
 
     with pytest.raises(oauth.OAuthError) as excinfo:
-        run_login(oauth_client(), PROVIDER, None, port=0, timeout=10)
+        run_login(oauth_client(), METHOD, None, port=0, timeout=10)
 
     assert "\x1b" not in str(excinfo.value)
     assert "denied" in str(excinfo.value)
@@ -161,7 +163,7 @@ def test_a_registered_client_is_reused_rather_than_registered_again(monkeypatch)
     browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
     client = httpx.Client(transport=httpx.MockTransport(handler))
 
-    client_id, _ = run_login(client, PROVIDER, "client-existing", port=0, timeout=10)
+    client_id, _ = run_login(client, METHOD, "client-existing", port=0, timeout=10)
 
     assert client_id == "client-existing"
 
@@ -181,10 +183,61 @@ def test_cancelling_before_the_callback_arrives_raises_login_cancelled(monkeypat
     with pytest.raises(LoginCancelled):
         perform_login(
             oauth_client(),
-            PROVIDER,
+            METHOD,
             None,
             on_authorize_url=lambda url: None,
             cancelled=cancelled,
+            port=0,
+            timeout=10,
+        )
+
+
+STATIC = oauth.OAuthMethod(
+    provider=oauth.StaticProvider(
+        metadata=oauth.ServerMetadata(
+            authorization_endpoint=METADATA["authorization_endpoint"],
+            token_endpoint=METADATA["token_endpoint"],
+        ),
+        help_url="https://developer.example.invalid/dashboard",
+    ),
+    scopes=("read",),
+)
+
+
+def static_client() -> httpx.Client:
+    """Serves only the token endpoint: a static login that discovers or registers fails loudly."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/token":
+            return httpx.Response(200, json=TOKEN)
+        raise AssertionError(f"unexpected request to {request.url}")
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_a_static_login_uses_the_pasted_client_id_and_never_registers(monkeypatch):
+    browser_sending(monkeypatch, "/callback?code=code-1&state={state}")
+
+    client_id, credentials = perform_login(
+        static_client(),
+        STATIC,
+        "client-static",
+        on_authorize_url=lambda url: None,
+        port=0,
+        timeout=10,
+    )
+
+    assert client_id == "client-static"
+    assert credentials.access_token == "at-1"
+
+
+def test_a_static_login_without_a_client_id_raises():
+    with pytest.raises(oauth.OAuthError, match="client id"):
+        perform_login(
+            static_client(),
+            STATIC,
+            None,
+            on_authorize_url=lambda url: None,
             port=0,
             timeout=10,
         )

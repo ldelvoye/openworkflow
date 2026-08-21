@@ -72,42 +72,46 @@ def _cancellation_requested(cancelled: threading.Event | None) -> bool:
 
 def perform_login(
     client: httpx.Client,
-    provider: OAuthMethod,
+    method: OAuthMethod,
     client_id: str | None,
     *,
     on_authorize_url: Callable[[str], None],
     cancelled: threading.Event | None = None,
-    port: int = 0,
+    port: int | None = None,
     timeout: float = LOGIN_TIMEOUT_SECONDS,
 ) -> tuple[str, Credentials]:
     """Register if needed, take the user through the browser, return the tokens.
 
     Returns the client id alongside the credentials so a first-time
-    registration can be persisted for later logins to reuse. The callback
-    listens on an ephemeral port nothing else can predict or squat in
-    advance; see REGISTRATION_PORT for the fixed port named at registration.
+    registration can be persisted for later logins to reuse. port None means
+    the provider's own default (see oauth.callback_port)
     """
     verifier, challenge = oauth.make_pkce_pair()
     state = secrets.token_urlsafe(16)
     received: dict[str, str] = {}
 
+    if port is None:
+        port = oauth.callback_port(method)
     try:
         server = http.server.HTTPServer(("127.0.0.1", port), _callback_handler(state, received))
     except OSError as error:
         raise oauth.OAuthError(f"could not open a port for the callback: {error}") from error
 
     try:
-        # Bound before the redirect is built so an ephemeral port resolves to
-        # the one actually listening.
-        redirect_uri = oauth.redirect_uri_for(server.server_port)
-        metadata = oauth.discover(client, provider)
+        redirect_uri = f"http://127.0.0.1:{server.server_port}/callback"
+        metadata = oauth.resolve_metadata(client, method)
         if client_id is None:
+            provider = method.provider
+            if isinstance(provider, oauth.StaticProvider):
+                raise oauth.OAuthError(
+                    "this provider cannot register clients; connect with a client id"
+                )
             client_id = oauth.register_client(
                 client, metadata, provider, oauth.REGISTERED_REDIRECT_URI
             )
 
         url = oauth.build_authorize_url(
-            metadata, client_id, redirect_uri, challenge, provider.scopes, state
+            metadata, client_id, redirect_uri, challenge, method.scopes, state
         )
         on_authorize_url(url)
         webbrowser.open(url)

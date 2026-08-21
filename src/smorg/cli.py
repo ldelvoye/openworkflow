@@ -41,9 +41,9 @@ from smorg.shell.terminal_palette import query_terminal_palette
 
 def run_login(
     client: httpx.Client,
-    provider: oauth.OAuthMethod,
+    method: oauth.OAuthMethod,
     client_id: str | None,
-    port: int = 0,
+    port: int | None = None,
     timeout: float = LOGIN_TIMEOUT_SECONDS,
 ) -> tuple[str, Credentials]:
     """perform_login plus the CLI's printed browser instructions."""
@@ -53,7 +53,7 @@ def run_login(
         print(f"if it does not open, paste this:\n{url}\n")
 
     return perform_login(
-        client, provider, client_id, on_authorize_url=on_authorize_url, port=port, timeout=timeout
+        client, method, client_id, on_authorize_url=on_authorize_url, port=port, timeout=timeout
     )
 
 
@@ -77,23 +77,31 @@ def _connect(integration_id: str) -> int:
     if isinstance(method, TokenMethod):
         return _connect_with_token(integration, config, path, method)
 
-    provider = method
+    provider = method.provider
+    if isinstance(provider, oauth.StaticProvider) and existing_client_id is None:
+        print(f"{integration.manifest.display_name} needs an OAuth app you create yourself.")
+        print(f"create one at: {provider.help_url}")
+        print(f"set its redirect uri to: {oauth.REGISTERED_REDIRECT_URI}")
+        existing_client_id = input("client id: ").strip()
+        if not existing_client_id:
+            print("a client id is required", file=sys.stderr)
+            return 1
 
     with httpx.Client(timeout=30) as client:
         try:
-            client_id, credentials = run_login(client, provider, existing_client_id)
+            client_id, credentials = run_login(client, method, existing_client_id)
         except oauth.OAuthError as error:
             print(f"connect failed: {error}", file=sys.stderr)
             return 1
 
-    _warn_on_extra_scopes(integration, provider, credentials)
+    _warn_on_extra_scopes(integration, method, credentials)
 
     try:
         set_credentials(integration_id, credentials)
     except CredentialStoreError as error:
         # The token is live and about to become unreachable — nothing will hold
         # it, so nothing could revoke it later. Hand it back before giving up.
-        revoke_best_effort(provider, client_id, credentials)
+        revoke_best_effort(method, client_id, credentials)
         print(str(error), file=sys.stderr)
         return 1
 
@@ -139,10 +147,10 @@ def _connect_with_token(
 
 
 def _warn_on_extra_scopes(
-    integration: Integration, provider: oauth.OAuthMethod, credentials: Credentials
+    integration: Integration, method: oauth.OAuthMethod, credentials: Credentials
 ) -> None:
     warning = extra_scopes_warning(
-        integration.manifest.id, integration.manifest.display_name, provider, credentials
+        integration.manifest.id, integration.manifest.display_name, method, credentials
     )
     if warning is not None:
         print(f"warning: {warning}", file=sys.stderr)

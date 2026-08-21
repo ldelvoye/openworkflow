@@ -1,8 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from smorg.auth.oauth import OAuthMethod, ServerMetadata, StaticProvider
 from smorg.auth.store import (
     Credentials,
     CredentialStoreError,
@@ -11,6 +13,7 @@ from smorg.auth.store import (
 )
 from smorg.cli import _offer_path_setup, main
 from smorg.core.config import Config, TabConfig, load_config, save_config
+from smorg.core.contract import AuthPath, Manifest
 from smorg.core.registry import known_integration_ids
 
 LIVE = Credentials(
@@ -379,3 +382,71 @@ def test_offer_path_setup_yes_reports_a_write_failure_instead_of_crashing(monkey
     rc_file = Path.home() / ".zshrc"
     assert not rc_file.exists()
     assert "could not write" in stderr.written
+
+
+STATIC_MANIFEST = Manifest(
+    id="widget",
+    display_name="Widget",
+    connections=(
+        AuthPath(
+            id="oauth",
+            method=OAuthMethod(
+                provider=StaticProvider(
+                    metadata=ServerMetadata(
+                        authorization_endpoint="https://accounts.widget.invalid/authorize",
+                        token_endpoint="https://accounts.widget.invalid/token",
+                    ),
+                    help_url="https://developer.widget.invalid/apps",
+                ),
+                scopes=("read",),
+            ),
+        ),
+    ),
+    stale_after=timedelta(minutes=5),
+    actions=(),
+)
+
+
+def test_connect_prompts_for_a_client_id_on_a_static_path(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "smorg.cli.get_integration",
+        lambda integration_id: SimpleNamespace(manifest=STATIC_MANIFEST),
+    )
+    logins: list[str | None] = []
+
+    def fake_run_login(client, provider, client_id, **kwargs):
+        logins.append(client_id)
+        return (client_id, LIVE)
+
+    monkeypatch.setattr("smorg.cli.run_login", fake_run_login)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "client-static")
+
+    assert main(["connect", "widget"]) == 0
+
+    out = capsys.readouterr().out
+    assert "https://developer.widget.invalid/apps" in out
+    assert "http://127.0.0.1:8765/callback" in out
+    assert logins == ["client-static"]
+    expected = TabConfig(integration="widget", client_id="client-static", connection="oauth")
+    assert load_config().tabs == (expected,)
+
+
+def test_connect_refuses_an_empty_client_id_on_a_static_path(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "smorg.cli.get_integration",
+        lambda integration_id: SimpleNamespace(manifest=STATIC_MANIFEST),
+    )
+    logins: list[str | None] = []
+
+    def fake_run_login(client, provider, client_id, **kwargs):
+        logins.append(client_id)
+        return (client_id, LIVE)
+
+    monkeypatch.setattr("smorg.cli.run_login", fake_run_login)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "   ")
+
+    assert main(["connect", "widget"]) == 1
+
+    assert "a client id is required" in capsys.readouterr().err
+    assert logins == []
+    assert load_config().tabs == ()
