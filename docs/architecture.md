@@ -48,32 +48,57 @@ subclasses; neither side imports the other — `core/registry.py` is the only
 place integration ids appear. Tests grep for violations ("sources never format,
 panels never fetch"), so a broken integration's blast radius is its own tab.
 
-## Two ways in, chosen per integration
+## Connecting is two choices, not one
 
-A connection path is either an OAuth provider to authorize against or a token
-the user creates in the service and pastes in, and a manifest declares which.
-Neither is the default: the path decides the whole connect flow, and nothing
-downstream re-derives which kind it is holding.
+Every integration answers two independent questions, and fusing them is the
+easiest way to misread this design:
 
-**OAuth is worth it only where the service makes it cheap.** Linear's MCP
-endpoint registers a client on the fly, so connecting is one browser round trip
-and nothing to configure. GitHub publishes no metadata document and registers no
-clients, so an OAuth tab there would need an app somebody registered by hand and
-a client id configured before the first login — a setup step per user, to arrive
-where one pasted token already arrives.
+- **Auth: how credentials are obtained.** A manifest's `AuthPath.method`
+  is either an OAuth provider to authorize against (`OAuthMethod`) or a
+  token the user creates in the service and pastes in (`TokenMethod`). Neither
+  is the default: the path decides the whole connect flow, and nothing
+  downstream re-derives which kind it is holding. All of this lives in `auth/`.
+- **Transport: what `fetch` talks to once credentials exist.** An MCP session
+  (`core/mcp.py`) or the service's plain REST API. Nothing declares this
+  anywhere — it is a private choice of the integration's `source.py`.
+
+The current integrations occupy diagonal corners, which makes the two axes
+look like one:
+
+|                  | MCP transport | REST transport |
+| ---------------- | ------------- | -------------- |
+| **OAuth**        | Linear        | —              |
+| **Pasted token** | —             | GitHub         |
+
+The empty corners are circumstance, not design. OAuth + REST is where any
+classic OAuth provider with no token alternative lands (Spotify is the
+roadmap's first candidate); token + MCP would be an MCP server reached with a
+static bearer token.
+
+### The auth axis: OAuth where it is cheap, a pasted token where it is not
+
+**OAuth is worth it only where the service makes it cheap.** The OAuth core
+does metadata discovery (RFC 8414) and dynamic client registration (RFC 7591):
+a provider supporting both connects in one browser round trip with nothing to
+configure. Today that combination is essentially the remote-MCP-server auth
+profile — the real reason MCP appears in this design at all, and why
+"OAuth-capable" and "has an MCP endpoint" currently coincide. The coincidence
+is not the architecture: nothing in `auth/` knows MCP exists.
+
+GitHub publishes no metadata document and registers no clients, so an OAuth
+tab there would need an app somebody registered by hand and a client id
+configured before the first login — a setup step per user, to arrive where one
+pasted token already arrives.
 
 What a pasted token gives up is renewal: nothing here issued it, so nothing here
 can refresh it. A token that expires or is revoked surfaces as `AuthExpired` on
 the next fetch, and the tab says to connect again — the same path an
 unrefreshable OAuth token already takes, which is why it needed no new machinery.
 
-## MCP is the auth layer, not a data contract
+### The transport axis: MCP data is not a contract
 
-MCP appears in this design for one reason: its servers ship OAuth 2.1 with PKCE
-and dynamic client registration, so a third-party public client can
-authenticate without an admin-issued OAuth app.
-
-Its *data* is another matter. Measured directly across four MCP servers:
+On the data side MCP earns no special standing. Measured directly across four
+MCP servers:
 
 | Server | Payload                                      | Pagination                              |
 | ------ | -------------------------------------------- | --------------------------------------- |

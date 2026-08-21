@@ -4,13 +4,13 @@ from datetime import timedelta
 import httpx
 import pytest
 
-from smorg.auth.oauth import ProviderConfig
+from smorg.auth.oauth import OAuthMethod
 from smorg.auth.store import Credentials
 from smorg.core.contract import (
     Action,
     ActionClass,
     AuthExpired,
-    ConnectionPath,
+    AuthPath,
     IntegrationError,
     Item,
     Malformed,
@@ -25,18 +25,18 @@ from smorg.core.registry import (
 )
 from smorg.shell.panel import Panel
 
-PROVIDER = ProviderConfig(
+PROVIDER = OAuthMethod(
     metadata_url="https://example.invalid/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",
 )
-DEFAULT_CONNECTIONS = (ConnectionPath(id="mcp", method=PROVIDER),)
+DEFAULT_CONNECTIONS = (AuthPath(id="mcp", method=PROVIDER),)
 
 
 def manifest(
     identifier: str = "fake",
     actions: tuple[Action, ...] = (),
-    connections: tuple[ConnectionPath, ...] = DEFAULT_CONNECTIONS,
+    connections: tuple[AuthPath, ...] = DEFAULT_CONNECTIONS,
 ) -> Manifest:
     return Manifest(
         id=identifier,
@@ -108,18 +108,18 @@ def test_manifest_rejects_empty_connections():
 
 def test_manifest_rejects_duplicate_connection_ids():
     with pytest.raises(ValueError, match="duplicate connection path"):
-        manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),) * 2)
+        manifest(connections=(AuthPath(id="mcp", method=PROVIDER),) * 2)
 
 
 def test_connection_with_no_chosen_id_returns_the_first_declared_path():
-    mcp = ConnectionPath(id="mcp", method=PROVIDER)
-    api_key = ConnectionPath(id="api-key", method=PROVIDER)
+    mcp = AuthPath(id="mcp", method=PROVIDER)
+    api_key = AuthPath(id="api-key", method=PROVIDER)
     declared = manifest(connections=(mcp, api_key))
     assert declared.connection(None) is mcp
 
 
 def test_connection_with_an_unknown_id_names_the_declared_ones():
-    declared = manifest(connections=(ConnectionPath(id="mcp", method=PROVIDER),))
+    declared = manifest(connections=(AuthPath(id="mcp", method=PROVIDER),))
     with pytest.raises(ValueError, match="mcp") as excinfo:
         declared.connection("nope")
     assert "nope" in str(excinfo.value)

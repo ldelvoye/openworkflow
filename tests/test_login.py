@@ -18,7 +18,7 @@ from smorg.auth.login import LoginCancelled, perform_login
 from smorg.cli import run_login
 
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
-PROVIDER = oauth.ProviderConfig(
+PROVIDER = oauth.OAuthMethod(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",

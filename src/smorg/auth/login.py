@@ -19,7 +19,7 @@ from collections.abc import Callable
 import httpx
 
 from smorg.auth import oauth
-from smorg.auth.oauth import ProviderConfig
+from smorg.auth.oauth import OAuthMethod
 from smorg.auth.store import Credentials
 from smorg.core.text import sanitize_line
 
@@ -72,7 +72,7 @@ def _cancellation_requested(cancelled: threading.Event | None) -> bool:
 
 def perform_login(
     client: httpx.Client,
-    provider: ProviderConfig,
+    provider: OAuthMethod,
     client_id: str | None,
     *,
     on_authorize_url: Callable[[str], None],

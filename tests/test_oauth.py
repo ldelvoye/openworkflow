@@ -9,7 +9,7 @@ import pytest
 
 from smorg.auth.oauth import (
     OAuthError,
-    ProviderConfig,
+    OAuthMethod,
     build_authorize_url,
     discover,
     exchange_code,
@@ -24,7 +24,7 @@ from smorg.auth.store import Credentials
 METADATA = json.loads((Path(__file__).parent / "fixtures" / "oauth_metadata.json").read_text())
 RESOURCE = "https://mcp.linear.app/mcp"
 REDIRECT = "http://127.0.0.1:8765/callback"
-PROVIDER = ProviderConfig(
+PROVIDER = OAuthMethod(
     metadata_url="https://mcp.linear.app/.well-known/oauth-authorization-server",
     scopes=("read",),
     client_name="smorg",
