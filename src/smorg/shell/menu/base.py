@@ -20,5 +20,11 @@ class ManagementScreen(ModalBox):
     """
 
     DEFAULT_CSS = """
-    ManagementScreen > OptionList { max-width: 64; }
+    ManagementScreen > OptionList {
+        max-width: 64;
+        border: round $primary;
+        &:focus {
+            border: round $primary;
+        }
+    }
     """
